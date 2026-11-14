@@ -26,6 +26,9 @@ export const SlidersIcon = make(<><path d="M4 7h10M18 7h2M4 17h4M12 17h8" /><cir
 export const SidebarIcon = make(<><rect x="3" y="4" width="18" height="16" rx="3" /><path d="M9 4v16" /></>);
 export const TrashIcon = make(<><path d="M4 7h16M10 11v6M14 11v6" /><path d="M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" /></>);
 export const SaveIcon = make(<><path d="M5 4h11l3 3v11a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V4Z" /><path d="M8 4v5h7V4M8 20v-6h8v6" /></>);
+export const FolderIcon = make(<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7Z" />);
+export const ArrowLeftIcon = make(<path d="M19 12H5M12 19l-7-7 7-7" />);
+export const HomeIcon = make(<><path d="M4 11 12 4l8 7" /><path d="M6 10v9h12v-9" /></>);
 export const XIcon = make(<path d="M6 6l12 12M18 6 6 18" />);
 export const SearchIcon = make(<><circle cx="11" cy="11" r="6.5" /><path d="m20 20-4-4" /></>);
 export const SparkIcon = make(<path d="M12 3v4M12 17v4M3 12h4M17 12h4M6 6l2.5 2.5M15.5 15.5 18 18M6 18l2.5-2.5M15.5 8.5 18 6" />);

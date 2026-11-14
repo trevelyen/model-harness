@@ -6,7 +6,7 @@ import { execFile, spawn, type ChildProcess } from "node:child_process";
 import { readFile, readdir, stat } from "node:fs/promises";
 import { createServer } from "node:net";
 import { freemem, homedir, totalmem, userInfo } from "node:os";
-import { join, basename, resolve } from "node:path";
+import { join, basename, dirname, resolve } from "node:path";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { readHeader, reasoningSupport, type ReasoningSupport } from "./gguf.ts";
@@ -291,6 +291,17 @@ async function ensureLocal(options: EnsureRequest): Promise<{ server: LocalServe
   return { server, loadMs: Date.now() - startedAt };
 }
 
+/** The folders inside `dir`, for the folder browser. Hidden ones come last. */
+async function listFolders(dir: string) {
+  const path = resolve(expandHome(dir || "~"));
+  const entries = await readdir(path, { withFileTypes: true });
+  const folders = entries
+    .filter((e) => e.isDirectory() || (e.isSymbolicLink() && !e.name.startsWith(".")))
+    .map((e) => e.name)
+    .sort((x, y) => Number(x.startsWith(".")) - Number(y.startsWith(".")) || x.localeCompare(y));
+  return { path, parent: dirname(path) === path ? null : dirname(path), home: homedir(), folders };
+}
+
 interface PiRequest extends PiRunRequest {
   provider: { adapter: string; settings: Record<string, string> };
   model: string;
@@ -378,6 +389,12 @@ async function handle(req: IncomingMessage, res: ServerResponse, next: () => voi
           modelContext: header?.trainedContext,
         });
       }
+      case "/api/fs/folders":
+        try {
+          return sendJson(res, 200, await listFolders(url.searchParams.get("dir") ?? ""));
+        } catch (error) {
+          return sendJson(res, 400, { error: `Cannot open that folder: ${(error as NodeJS.ErrnoException).code ?? (error as Error).message}` });
+        }
       case "/api/pi/run": {
         if (req.method !== "POST") return sendJson(res, 405, { error: "Use POST" });
         const body = JSON.parse((await readBody(req)).toString() || "{}") as PiRequest;

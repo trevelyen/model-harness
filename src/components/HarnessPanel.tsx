@@ -3,7 +3,8 @@ import type { HarnessDefinition } from "../harnesses/types";
 import type { GenerationParams } from "../adapters/types";
 import { setState, uid, useStore, type SavedPrompt } from "../state/store";
 import { useEffect, useRef, useState } from "react";
-import { CheckIcon, ChevronDownIcon, HookIcon, LoopIcon, PlusIcon, SaveIcon, ToolIcon, TrashIcon, XIcon } from "./Icons";
+import { FolderPicker } from "./FolderPicker";
+import { CheckIcon, ChevronDownIcon, FolderIcon, HookIcon, LoopIcon, PlusIcon, SaveIcon, ToolIcon, TrashIcon, XIcon } from "./Icons";
 
 const PLANNED = [
   { icon: ToolIcon, title: "Tools", text: "Give the model functions to call: shell, files, web, or your own." },
@@ -251,6 +252,7 @@ function update(id: string, patch: Partial<HarnessDefinition>) {
 
 export function HarnessPanel({ open, onClose }: { open: boolean; onClose: () => void }) {
   const { harnesses, current } = useActiveHarness();
+  const [browsing, setBrowsing] = useState(false);
   const kind = getHarnessAdapter(current.kind);
   const params = current.params;
   const setParam = (key: keyof GenerationParams, value: number | undefined) =>
@@ -315,11 +317,26 @@ export function HarnessPanel({ open, onClose }: { open: boolean; onClose: () => 
           <>
             <div className="field">
               <label>Working folder</label>
-              <input
-                placeholder="~/code/my-project"
-                value={current.options.cwd ?? ""}
-                onChange={(e) => update(current.id, { options: { ...current.options, cwd: e.target.value } })}
-              />
+              <div className="folder-input">
+                <input
+                  placeholder="~/code/my-project"
+                  value={current.options.cwd ?? ""}
+                  onChange={(e) => update(current.id, { options: { ...current.options, cwd: e.target.value } })}
+                />
+                <button type="button" className="icon-button" aria-label="Browse for a folder" title="Browse" onClick={() => setBrowsing(true)}>
+                  <FolderIcon size={16} />
+                </button>
+              </div>
+              {browsing && (
+                <FolderPicker
+                  initial={current.options.cwd ?? ""}
+                  onClose={() => setBrowsing(false)}
+                  onPick={(path) => {
+                    update(current.id, { options: { ...current.options, cwd: path } });
+                    setBrowsing(false);
+                  }}
+                />
+              )}
               <small>pi reads, edits and runs commands in this folder without asking first. Pick one you're happy for it to change.</small>
             </div>
             <div className="field">

@@ -3,7 +3,7 @@
 import type { Plugin } from "vite";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { execFile, spawn, type ChildProcess } from "node:child_process";
-import { readFile, readdir, stat } from "node:fs/promises";
+import { mkdir, readFile, readdir, stat } from "node:fs/promises";
 import { createServer } from "node:net";
 import { freemem, homedir, totalmem, userInfo } from "node:os";
 import { join, basename, dirname, resolve } from "node:path";
@@ -395,6 +395,22 @@ async function handle(req: IncomingMessage, res: ServerResponse, next: () => voi
         } catch (error) {
           return sendJson(res, 400, { error: `Cannot open that folder: ${(error as NodeJS.ErrnoException).code ?? (error as Error).message}` });
         }
+      case "/api/fs/mkdir": {
+        if (req.method !== "POST") return sendJson(res, 405, { error: "Use POST" });
+        const { parent, name } = JSON.parse((await readBody(req)).toString() || "{}") as { parent?: string; name?: string };
+        const clean = name?.trim() ?? "";
+        if (!parent || !clean || clean === "." || clean === ".." || /[/\\\0]/.test(clean)) {
+          return sendJson(res, 400, { error: "That isn't a valid folder name" });
+        }
+        const path = join(resolve(expandHome(parent)), clean);
+        try {
+          await mkdir(path);
+        } catch (error) {
+          const code = (error as NodeJS.ErrnoException).code;
+          return sendJson(res, 400, { error: code === "EEXIST" ? `${clean} already exists` : `Cannot make that folder: ${code ?? (error as Error).message}` });
+        }
+        return sendJson(res, 200, { path });
+      }
       case "/api/pi/run": {
         if (req.method !== "POST") return sendJson(res, 405, { error: "Use POST" });
         const body = JSON.parse((await readBody(req)).toString() || "{}") as PiRequest;

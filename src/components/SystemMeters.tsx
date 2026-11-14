@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { errorText } from "../lib/http";
+import { useStore } from "../state/store";
 import { AlertIcon, CheckIcon, TrashIcon, XIcon } from "./Icons";
 
 interface SystemStats {
@@ -99,13 +100,14 @@ function FreeButton({ path, label, onError }: { path: string; label: string; onE
 export function SystemMeters() {
   const stats = useSystemStats();
   const [error, setError] = useState<{ message: string; rule?: string } | null>(null);
+  const showGpuLoad = useStore((s) => s.showGpuLoad);
   if (!stats) return null;
   const gpu = stats.gpus[0];
   return (
     <div className="meters">
       {gpu && (
         <>
-          <Meter label="GPU" value={gpu.utilization / 100} title={`${gpu.name}: ${gpu.utilization}% busy`} />
+          {showGpuLoad && <Meter label="GPU" value={gpu.utilization / 100} title={`${gpu.name}: ${gpu.utilization}% busy`} />}
           <Meter
             label="VRAM"
             value={gpu.memoryUsed / gpu.memoryTotal}

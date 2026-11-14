@@ -35,7 +35,19 @@ export type ChatEvent =
   | { type: "text"; text: string }
   | { type: "reasoning"; text: string }
   | { type: "status"; text: string }
+  | ({ type: "tool" } & ToolEvent)
   | ({ type: "usage" } & Usage);
+
+/** A tool an agent harness ran, sent when it starts and again when it ends. */
+export interface ToolEvent {
+  id: string;
+  name: string;
+  args?: Record<string, unknown>;
+  /** The tool's output, once it has finished. */
+  result?: string;
+  isError?: boolean;
+  done?: boolean;
+}
 
 /** Whatever a backend reports about a reply. Every field is optional. */
 export interface Usage {

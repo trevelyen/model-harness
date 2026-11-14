@@ -60,7 +60,7 @@ function ContextBar({ used, limit, max }: { used: number; limit: number; max: nu
   const percent = Math.round(Math.min(1, used / limit) * 100);
   const title =
     `${used.toLocaleString()} of ${limit.toLocaleString()} tokens used (${percent}%).` +
-    (max > limit ? ` The model can handle up to ${max.toLocaleString()}; raise Context size in Settings to use more.` : "");
+    (max > limit ? ` The model can handle up to ${max.toLocaleString()}; raise Context size in the harness panel to use more.` : "");
   return (
     <span className={`context-bar ${used / limit >= 0.8 ? "is-full" : ""}`} title={title} role="meter" aria-label="Context used" aria-valuenow={percent} aria-valuemin={0} aria-valuemax={100}>
       <span className="context-bar-track">

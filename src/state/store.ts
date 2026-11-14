@@ -1,5 +1,5 @@
 import { useSyncExternalStore } from "react";
-import type { Effort, ReasoningSupport, Settings, Usage } from "../adapters/types";
+import type { Effort, ReasoningSupport, Settings, ToolEvent, Usage } from "../adapters/types";
 import type { HarnessDefinition } from "../harnesses/types";
 import { defaultHarness } from "../harnesses/registry";
 
@@ -22,11 +22,18 @@ export interface Message {
   /** The model's display name, as the model menu showed it. */
   modelLabel?: string;
   usage?: Usage;
+  /**
+   * A reply from an agent harness, in the order it happened: text, then the
+   * tools it ran, then more text. `content` still holds all the text joined.
+   */
+  parts?: MessagePart[];
   startedAt?: number;
   /** When the first text or reasoning arrived, after loading and reading the prompt. */
   firstTokenAt?: number;
   finishedAt?: number;
 }
+
+export type MessagePart = { type: "text"; text: string } | ({ type: "tool" } & ToolEvent);
 
 /** A system prompt saved by name, to load into any harness. */
 export interface SavedPrompt {
@@ -69,6 +76,8 @@ export interface State {
   reasoning: ReasoningChoice;
   /** What the context bar's full width stands for: the most the model can handle, or your limit. */
   contextBar: "model" | "limit";
+  /** Whether the header shows the GPU load meter. VRAM and RAM always show. */
+  showGpuLoad: boolean;
   prompts: SavedPrompt[];
 }
 
@@ -96,6 +105,7 @@ const seed: State = {
   harnessId: defaultHarness.id,
   reasoning: { effort: "high" },
   contextBar: "model",
+  showGpuLoad: false,
   prompts: [],
 };
 
@@ -157,8 +167,8 @@ let savedSettingsJson = "";
 const savedChats = new Map<string, Conversation>();
 
 function settingsJson(s: State) {
-  const { providers, harnesses, selection, harnessId, activeId, reasoning, contextBar, prompts } = s;
-  return JSON.stringify({ providers: providers.map(withoutSecrets), harnesses, selection, harnessId, activeId, reasoning, contextBar, prompts });
+  const { providers, harnesses, selection, harnessId, activeId, reasoning, contextBar, showGpuLoad, prompts } = s;
+  return JSON.stringify({ providers: providers.map(withoutSecrets), harnesses, selection, harnessId, activeId, reasoning, contextBar, showGpuLoad, prompts });
 }
 
 async function put(path: string, body: string) {

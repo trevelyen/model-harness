@@ -11,6 +11,7 @@ import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { readHeader, reasoningSupport, type ReasoningSupport } from "./gguf.ts";
 import { deleteChat, isSafeId, readAll, writeChat, writeState } from "./data.ts";
+import { runPi, type PiEndpoint, type PiRunRequest } from "./pi.ts";
 
 const DROP_REQUEST_HEADERS = new Set([
   "host", "origin", "referer", "cookie", "connection", "content-length",
@@ -290,6 +291,51 @@ async function ensureLocal(options: EnsureRequest): Promise<{ server: LocalServe
   return { server, loadMs: Date.now() - startedAt };
 }
 
+interface PiRequest extends PiRunRequest {
+  provider: { adapter: string; settings: Record<string, string> };
+  model: string;
+}
+
+/** Works out where pi should send model requests, starting llama-server first for a local GGUF. */
+async function piEndpoint({ provider, model }: PiRequest): Promise<{ endpoint: PiEndpoint; initial: object[] }> {
+  const { adapter, settings } = provider;
+  if (adapter === "llamacpp") {
+    const { server, loadMs } = await ensureLocal({ ...settings, model });
+    server.contextWindow ??= await readContextWindow(server.port);
+    const header = await readHeader(server.model, (await stat(server.model)).size).catch(() => undefined);
+    const reasoning = reasoningSupport(header?.chatTemplate);
+    return {
+      endpoint: {
+        api: "openai-completions",
+        baseUrl: `http://127.0.0.1:${server.port}/v1`,
+        model: basename(server.model).replace(/\.gguf$/i, ""),
+        reasoning: !!reasoning?.toggle,
+        contextWindow: server.contextWindow,
+        // Qwen and Gemma switch thinking through the chat template, not an effort field.
+        byThinkingLevel: reasoning?.toggle
+          ? Object.fromEntries(["off", "minimal", "low", "medium", "high"].map((level) => [level, { chat_template_kwargs: { enable_thinking: level !== "off" } }]))
+          : undefined,
+        local: true,
+      },
+      initial: [{ type: "usage", loadMs, contextWindow: server.contextWindow, modelContext: header?.trainedContext }],
+    };
+  }
+  if (adapter === "openai" || adapter === "ollama") {
+    const base = (settings.baseUrl || "").replace(/\/+$/, "");
+    return {
+      endpoint: { api: "openai-completions", baseUrl: adapter === "ollama" ? `${base}/v1` : base, apiKey: settings.apiKey, model, reasoning: false },
+      initial: [],
+    };
+  }
+  if (adapter === "anthropic") {
+    return {
+      endpoint: { api: "anthropic-messages", baseUrl: settings.baseUrl || "https://api.anthropic.com", apiKey: settings.apiKey, model, reasoning: true },
+      initial: [],
+    };
+  }
+  throw new Error(`pi cannot use ${adapter} models yet`);
+}
+
 async function handle(req: IncomingMessage, res: ServerResponse, next: () => void) {
   if (!req.url?.startsWith("/api/")) return next();
   if (isCrossSite(req)) return sendJson(res, 403, { error: "Cross-site requests are not allowed" });
@@ -331,6 +377,15 @@ async function handle(req: IncomingMessage, res: ServerResponse, next: () => voi
           contextWindow: server.contextWindow,
           modelContext: header?.trainedContext,
         });
+      }
+      case "/api/pi/run": {
+        if (req.method !== "POST") return sendJson(res, 405, { error: "Use POST" });
+        const body = JSON.parse((await readBody(req)).toString() || "{}") as PiRequest;
+        if (!isSafeId(body.conversationId)) return sendJson(res, 400, { error: "Bad chat id" });
+        if (!body.cwd?.trim()) return sendJson(res, 400, { error: "pi needs a working folder. Set one in the harness panel." });
+        const { endpoint, initial } = await piEndpoint(body);
+        await runPi(body, endpoint, res, initial);
+        return;
       }
       case "/api/system":
         return sendJson(res, 200, await systemStats());

@@ -1,7 +1,7 @@
 import { getModelAdapter } from "../adapters/registry";
 import type { ChatMessage } from "../adapters/types";
 import { getHarnessAdapter } from "../harnesses/registry";
-import { getState, setState, uid, updateConversation, updateMessage, type Message } from "./store";
+import { getState, setState, uid, updateConversation, updateMessage, type Message, type MessagePart } from "./store";
 
 const running = new Map<string, AbortController>();
 
@@ -100,12 +100,23 @@ async function respond(conversationId: string) {
   let text = "";
   let reasoning = "";
   let usage: Message["usage"] = {};
+  // Only agent harnesses send tool events; a reply without any keeps no parts.
+  let parts: MessagePart[] = [];
+  let hasTools = false;
   let status: string | undefined;
   let firstTokenAt: number | undefined;
   let frame = 0;
   const flush = () => {
     frame = 0;
-    updateMessage(conversationId, assistant.id, (m) => ({ ...m, content: text, reasoning: reasoning || undefined, usage, status, firstTokenAt }));
+    updateMessage(conversationId, assistant.id, (m) => ({
+      ...m,
+      content: text,
+      reasoning: reasoning || undefined,
+      parts: hasTools ? parts : undefined,
+      usage,
+      status,
+      firstTokenAt,
+    }));
   };
   const schedule = () => {
     if (!frame) frame = requestAnimationFrame(flush);
@@ -117,14 +128,29 @@ async function respond(conversationId: string) {
       adapter,
       settings: provider.settings,
       model: s.selection.model,
+      conversationId,
       messages: history,
       signal: controller.signal,
     });
     for await (const event of events) {
       if (event.type === "text" || event.type === "reasoning") {
         firstTokenAt ??= Date.now();
-        if (event.type === "text") text += event.text;
-        else reasoning += event.text;
+        if (event.type === "text") {
+          // Text after a tool call starts a new paragraph.
+          const last = parts.at(-1);
+          if (last?.type === "text") parts = [...parts.slice(0, -1), { ...last, text: last.text + event.text }];
+          else {
+            if (text && !text.endsWith("\n")) text += "\n\n";
+            parts = [...parts, { type: "text", text: event.text }];
+          }
+          text += event.text;
+        } else reasoning += event.text;
+        status = undefined;
+      } else if (event.type === "tool") {
+        const { type: _, ...tool } = event;
+        hasTools = true;
+        const index = parts.findIndex((p) => p.type === "tool" && p.id === tool.id);
+        parts = index < 0 ? [...parts, { type: "tool", ...tool }] : parts.map((p, i) => (i === index ? { ...p, ...tool } : p));
         status = undefined;
       } else if (event.type === "status") {
         status = event.text;

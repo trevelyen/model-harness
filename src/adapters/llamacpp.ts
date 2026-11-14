@@ -50,10 +50,10 @@ export const llamaCppAdapter: ModelAdapter = {
     { key: "modelsDir", label: "Models folder", type: "text", placeholder: "./models", help: "Searched three folders deep for .gguf files. Relative paths start at the repo." },
     { key: "binary", label: "llama-server path", type: "text", placeholder: "llama-server" },
     { key: "gpuLayers", label: "GPU layers", type: "text", placeholder: "auto", help: "Leave empty to fit as many layers as your VRAM holds. Set a number to override." },
-    { key: "contextSize", label: "Context size", type: "number", placeholder: "16384" },
     { key: "extraArgs", label: "Extra arguments", type: "text", placeholder: "--flash-attn on" },
   ],
   live: true,
+  // contextSize is set with the slider in the harness panel, not here.
   defaults: { modelsDir: "./models", binary: "llama-server", gpuLayers: "", contextSize: "16384", extraArgs: "" },
   async listModels(settings, signal) {
     const res = await fetch(`/api/local/models?dir=${encodeURIComponent(settings.modelsDir || "./models")}`, { signal });

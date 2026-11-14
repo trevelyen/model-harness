@@ -1,7 +1,7 @@
 import { memo, useState } from "react";
-import type { Message } from "../state/store";
+import type { Message, MessagePart } from "../state/store";
 import { Markdown } from "./Markdown";
-import { AlertIcon, BrainIcon, CheckIcon, ChevronRightIcon, CopyIcon, InfoIcon, RefreshIcon, XIcon } from "./Icons";
+import { AlertIcon, BrainIcon, CheckIcon, ChevronRightIcon, CopyIcon, InfoIcon, RefreshIcon, ToolIcon, XIcon } from "./Icons";
 
 function CopyButton({ text }: { text: string }) {
   const [copied, setCopied] = useState(false);
@@ -31,6 +31,35 @@ function Reasoning({ text, streaming }: { text: string; streaming: boolean }) {
       <div className="reasoning-body">
         <div className="reasoning-inner">{text}</div>
       </div>
+    </div>
+  );
+}
+
+/** The one argument that says what a tool call did, such as a command or a file path. */
+function toolSummary(args: Record<string, unknown> = {}) {
+  const key = ["command", "path", "file_path", "pattern", "url", "query"].find((k) => typeof args[k] === "string");
+  const text = key ? String(args[key]) : JSON.stringify(args);
+  return text === "{}" ? "" : text.split("\n")[0];
+}
+
+function ToolCall({ tool }: { tool: Extract<MessagePart, { type: "tool" }> }) {
+  const [open, setOpen] = useState(false);
+  const state = !tool.done ? "is-running" : tool.isError ? "is-error" : "";
+  return (
+    <div className={`tool-call ${state} ${open ? "is-open" : ""}`}>
+      <button className="tool-call-head" onClick={() => setOpen((o) => !o)} aria-expanded={open}>
+        <ToolIcon size={14} />
+        <span className="tool-call-name">{tool.name}</span>
+        <span className={`tool-call-summary ${tool.done ? "" : "shimmer"}`}>{toolSummary(tool.args)}</span>
+        {tool.isError && <AlertIcon size={14} />}
+        <ChevronRightIcon size={14} className="reasoning-chevron" />
+      </button>
+      {open && (
+        <div className="tool-call-body">
+          {tool.args && Object.keys(tool.args).length > 0 && <pre>{JSON.stringify(tool.args, null, 2)}</pre>}
+          {tool.done ? <pre className="tool-call-result">{tool.result || "(no output)"}</pre> : <span className="shimmer">Running</span>}
+        </div>
+      )}
     </div>
   );
 }
@@ -90,7 +119,7 @@ export const MessageView = memo(function MessageView({
     );
   }
 
-  const waiting = message.streaming && !message.content && !message.reasoning;
+  const waiting = message.streaming && !message.content && !message.reasoning && !message.parts;
   const details = stats(message);
   return (
     <div className="message is-assistant">
@@ -101,11 +130,21 @@ export const MessageView = memo(function MessageView({
           {message.status && <span className="shimmer">{message.status}</span>}
         </div>
       )}
-      {message.content && (
-        <div className={message.streaming ? "is-streaming" : ""}>
-          <Markdown text={message.content} />
-        </div>
-      )}
+      {message.parts
+        ? message.parts.map((part, i) =>
+            part.type === "tool" ? (
+              <ToolCall key={part.id} tool={part} />
+            ) : (
+              <div key={i} className={message.streaming && i === message.parts!.length - 1 ? "is-streaming" : ""}>
+                <Markdown text={part.text} />
+              </div>
+            ),
+          )
+        : message.content && (
+            <div className={message.streaming ? "is-streaming" : ""}>
+              <Markdown text={message.content} />
+            </div>
+          )}
       {message.error && (
         <div className="error-card">
           <AlertIcon size={16} />

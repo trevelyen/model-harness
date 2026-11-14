@@ -16,6 +16,8 @@ export interface HarnessDefinition {
 }
 
 export interface HarnessContext {
+  /** The chat this turn belongs to. Agent harnesses keep their own history under it. */
+  conversationId: string;
   definition: HarnessDefinition;
   adapter: ModelAdapter;
   settings: Settings;

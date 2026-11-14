@@ -311,11 +311,34 @@ export function HarnessPanel({ open, onClose }: { open: boolean; onClose: () => 
           </div>
         </div>
 
+        {kind.id === "pi" && (
+          <>
+            <div className="field">
+              <label>Working folder</label>
+              <input
+                placeholder="~/code/my-project"
+                value={current.options.cwd ?? ""}
+                onChange={(e) => update(current.id, { options: { ...current.options, cwd: e.target.value } })}
+              />
+              <small>pi reads, edits and runs commands in this folder without asking first. Pick one you're happy for it to change.</small>
+            </div>
+            <div className="field">
+              <label>pi command</label>
+              <input
+                placeholder="pi"
+                value={current.options.command ?? ""}
+                onChange={(e) => update(current.id, { options: { ...current.options, command: e.target.value } })}
+              />
+              <small>Empty runs pi from your PATH. The system prompt below replaces pi's own coding prompt; leave it empty to keep pi's.</small>
+            </div>
+          </>
+        )}
+
         {kind.status === "stub" && (
           <div className="field">
             <label>Command</label>
             <input
-              placeholder={kind.id === "pi" ? "pi --mode rpc" : "my-agent --stdio"}
+              placeholder="my-agent --stdio"
               value={current.options.command ?? ""}
               onChange={(e) => update(current.id, { options: { ...current.options, command: e.target.value } })}
             />

@@ -111,10 +111,25 @@ A harness sits between the conversation and the model. Each kind is a `HarnessAd
 | Kind | Status |
 | ---- | ------ |
 | Direct | Works. Sends the chat with your system prompt and settings. |
-| pi | Stub. Will run the pi coding agent as an external process. |
+| pi | Works. Runs the [pi](https://pi.dev) coding agent on the chat's model. See below. |
 | Custom command | Stub. Will run any agent CLI you point it at. |
 
 The Tools, Agent loop and Hooks sections in the panel are placeholders for now.
+
+### pi
+
+The pi harness hands each message to the pi coding agent, which reads files, edits them and runs commands in a loop until the task is done. Its tool calls show in the reply as rows you can open to see the arguments and output.
+
+1. Install pi so `pi --version` works, or put its full path in the harness's pi command field.
+2. In the harness panel, pick **pi** under Runs with and set a **Working folder**. pi changes files and runs commands there without asking first, so pick a folder you're happy for it to change.
+3. Chat as normal. pi uses the model picked in the model menu: local GGUF, OpenAI compatible, Ollama or Anthropic.
+
+How it fits together (`server/pi.ts`):
+
+- The server starts `pi --mode rpc` in the working folder for each message and streams its events back as chat events. Stop aborts the run and shuts pi down.
+- pi gets its own config folder, `data/pi/`, so it never reads or changes `~/.pi`. Its `models.json` there is rewritten before each run to point at the chat's model, such as the llama-server the app started. API keys reach pi through its environment, never that file. Your own pi skills, extensions and logins in `~/.pi` aren't loaded.
+- Each chat is one pi session, kept in `data/pi/sessions/`. pi remembers the conversation itself, so only the newest message is sent. Messages sent with another harness earlier in the chat aren't part of pi's history.
+- The harness's system prompt replaces pi's own coding prompt. Leave it empty to keep pi's. Temperature, top-p, top-k and min-p go to OpenAI-compatible models, and Max tokens caps each reply. The Think toggle sets pi's thinking level.
 
 ## Storage
 
@@ -122,6 +137,7 @@ Chats, providers and harnesses are saved as JSON files in `data/`, which git ign
 
 - `data/state.json` holds providers, harnesses and the selected model.
 - `data/chats/<id>.json` holds one conversation each.
+- `data/pi/` holds the pi harness's config and sessions.
 
 The server writes them, so they survive browser changes, port changes and clearing site data. Set `MODEL_HARNESS_DATA` to keep them somewhere else. With no `data/` folder, the app starts with one Local GGUF provider pointed at `./models`.
 

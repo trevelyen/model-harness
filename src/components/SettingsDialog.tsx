@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { getModelAdapter, modelAdapters } from "../adapters/registry";
 import { setState, uid, useStore, type Provider } from "../state/store";
-import { CheckIcon, PlusIcon, ServerIcon, TrashIcon, XIcon, AlertIcon } from "./Icons";
+import { CheckIcon, PlusIcon, ServerIcon, SettingsIcon, TrashIcon, XIcon, AlertIcon } from "./Icons";
 
 type Test = { state: "idle" } | { state: "running" } | { state: "ok"; count: number } | { state: "error"; message: string };
 
@@ -94,42 +94,76 @@ function ContextBarChoice() {
   );
 }
 
+/** Shows or hides the GPU load meter in the header. */
+function GpuLoadChoice() {
+  const show = useStore((s) => s.showGpuLoad);
+  return (
+    <div className="setting-row">
+      <span>GPU load meter</span>
+      <div className="segmented" role="radiogroup" aria-label="GPU load meter">
+        {[true, false].map((value) => (
+          <button
+            key={String(value)}
+            type="button"
+            role="radio"
+            aria-checked={show === value}
+            className={show === value ? "is-active" : ""}
+            onClick={() => setState((s) => ({ ...s, showGpuLoad: value }))}
+          >
+            {value ? "Show" : "Hide"}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export function SettingsDialog({ onClose }: { onClose: () => void }) {
   const providers = useStore((s) => s.providers);
-  const [activeId, setActiveId] = useState(providers[0]?.id);
-  const [adding, setAdding] = useState(false);
-  const active = providers.find((p) => p.id === activeId) ?? providers[0];
+  // "general", "add", or a provider's id.
+  const [view, setView] = useState("general");
+  const adding = view === "add";
+  const active = providers.find((p) => p.id === view);
 
   const add = (adapterId: string) => {
     const adapter = getModelAdapter(adapterId)!;
     const provider: Provider = { id: uid(), name: adapter.label, adapter: adapterId, settings: { ...adapter.defaults } };
     setState((s) => ({ ...s, providers: [...s.providers, provider] }));
-    setActiveId(provider.id);
-    setAdding(false);
+    setView(provider.id);
   };
 
   return (
     <div className="overlay" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
       <div className="dialog" role="dialog" aria-label="Settings">
         <header className="dialog-head">
-          <h2>Model providers</h2>
+          <h2>Settings</h2>
           <button className="icon-button" aria-label="Close" onClick={onClose}><XIcon size={17} /></button>
         </header>
         <div className="dialog-body">
           <div className="provider-list">
+            <button className={`provider-tab ${view === "general" ? "is-active" : ""}`} onClick={() => setView("general")}>
+              <SettingsIcon size={15} />
+              <span>General</span>
+            </button>
+            <h4 className="provider-list-heading">Model providers</h4>
             {providers.map((p) => (
-              <button key={p.id} className={`provider-tab ${p.id === active?.id ? "is-active" : ""}`} onClick={() => { setActiveId(p.id); setAdding(false); }}>
+              <button key={p.id} className={`provider-tab ${p.id === active?.id ? "is-active" : ""}`} onClick={() => setView(p.id)}>
                 <ServerIcon size={15} />
                 <span>{p.name}</span>
               </button>
             ))}
-            <button className={`provider-tab is-add ${adding ? "is-active" : ""}`} onClick={() => setAdding(true)}>
+            <button className={`provider-tab is-add ${adding ? "is-active" : ""}`} onClick={() => setView("add")}>
               <PlusIcon size={15} />
               <span>Add provider</span>
             </button>
           </div>
           <div className="provider-pane">
-            {adding ? (
+            {view === "general" ? (
+              <div className="general-settings">
+                <ContextBarChoice />
+                <GpuLoadChoice />
+              </div>
+            ) : adding ? (
               <div className="adapter-grid">
                 {modelAdapters.map((a) => (
                   <button key={a.id} className="adapter-card" onClick={() => add(a.id)}>
@@ -145,9 +179,6 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
             )}
           </div>
         </div>
-        <footer className="dialog-foot">
-          <ContextBarChoice />
-        </footer>
       </div>
     </div>
   );

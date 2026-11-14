@@ -1,6 +1,7 @@
 import type { HarnessAdapter, HarnessDefinition } from "./types";
 import { directHarness } from "./direct";
-import { commandHarness, piHarness } from "./external";
+import { commandHarness } from "./external";
+import { piHarness } from "./pi";
 
 export const harnessAdapters: HarnessAdapter[] = [directHarness, piHarness, commandHarness];
 

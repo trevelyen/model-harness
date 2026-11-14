@@ -365,6 +365,15 @@ export function HarnessPanel({ open, onClose }: { open: boolean; onClose: () => 
 
         <SystemPrompt value={current.systemPrompt} onChange={(text) => update(current.id, { systemPrompt: text })} />
 
+        <ContextSlider />
+        <TokenSlider
+          label="Max tokens"
+          steps={MAX_TOKEN_STEPS}
+          offLabel="Off"
+          value={params.maxTokens}
+          onChange={(v) => setParam("maxTokens", v)}
+          hint="Lower = replies cut off sooner. Higher = longer replies. Off = model default."
+        />
         <Slider
           label="Temperature" min={0} max={2} step={0.05}
           value={params.temperature ?? 0.7}
@@ -388,15 +397,6 @@ export function HarnessPanel({ open, onClose }: { open: boolean; onClose: () => 
           value={params.minP ?? 0}
           onChange={(v) => setParam("minP", v)}
           hint="Lower = rare words allowed. Higher = only strong picks. 0 = off."
-        />
-        <ContextSlider />
-        <TokenSlider
-          label="Max tokens"
-          steps={MAX_TOKEN_STEPS}
-          offLabel="Off"
-          value={params.maxTokens}
-          onChange={(v) => setParam("maxTokens", v)}
-          hint="Lower = replies cut off sooner. Higher = longer replies. Off = model default."
         />
 
         <div className="planned">

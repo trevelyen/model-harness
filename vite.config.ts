@@ -36,8 +36,6 @@ function hotReloadSwitch(): Plugin {
 
 export default defineConfig({
   plugins: [react(), hotReloadSwitch()],
-  // The hard-restart button polls the daemon straight, past the dead proxy.
-  define: { "import.meta.env.VITE_API_PORT": JSON.stringify(apiPort) },
   server: { port, host, strictPort: true, proxy },
   preview: { port, host, strictPort: true, proxy },
 });

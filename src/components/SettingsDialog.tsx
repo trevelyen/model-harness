@@ -151,17 +151,9 @@ function GpuLoadChoice() {
  * whatever daemon was running when the page loaded, which after a restart is
  * dead, so a restart must not go through it.
  */
-const apiDirect = () => `http://127.0.0.1:${import.meta.env.VITE_API_PORT}`;
-
-/** The restart request, through the page's proxy, falling back to the daemon straight. */
+/** Asks the daemon to restart. */
 async function requestRestart() {
-  try {
-    const res = await fetch("/api/restart", { method: "POST" });
-    if (res.ok) return;
-  } catch {
-    // The proxy is down; try the daemon straight.
-  }
-  const res = await fetch(`${apiDirect()}/api/restart`, { method: "POST" });
+  const res = await fetch("/api/restart", { method: "POST" });
   if (!res.ok) throw new Error(await errorText(res));
 }
 
@@ -172,7 +164,8 @@ async function reloadWhenBack() {
   await new Promise((r) => setTimeout(r, 1000));
   while (Date.now() < deadline) {
     try {
-      if ((await fetch(`${apiDirect()}/api/local/status`)).ok) return window.location.reload();
+      // Through the page's own /api: it fails until the new daemon answers.
+      if ((await fetch("/api/local/status")).ok) return window.location.reload();
     } catch {
       // Still restarting.
     }

@@ -36,15 +36,26 @@ export type ChatEvent =
   | { type: "reasoning"; text: string }
   | { type: "status"; text: string }
   | ({ type: "tool" } & ToolEvent)
+  | ({ type: "change" } & FileChange)
+  /** The model messaged a staff agent: the page runs it in that child chat and answers the server. */
+  | { type: "staff"; requestId: string; name: string; message: string }
   | ({ type: "usage" } & Usage);
 
-/** A tool an agent harness ran, sent when it starts and again when it ends. */
+/** A file an agent harness changed, as a unified patch. Path is relative to its working folder. */
+export interface FileChange {
+  path: string;
+  patch: string;
+}
+
+/** A tool an agent harness ran, sent when it starts, on progress, and when it ends. */
 export interface ToolEvent {
   id: string;
   name: string;
   args?: Record<string, unknown>;
   /** The tool's output, once it has finished. */
   result?: string;
+  /** Structured progress while running, and the structured result when done. */
+  details?: unknown;
   isError?: boolean;
   done?: boolean;
 }

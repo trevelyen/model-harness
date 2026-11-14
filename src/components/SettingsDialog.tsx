@@ -1,7 +1,8 @@
 import { useState } from "react";
 import { getModelAdapter, modelAdapters } from "../adapters/registry";
-import { setState, uid, useStore, type Provider } from "../state/store";
-import { CheckIcon, PlusIcon, ServerIcon, SettingsIcon, TrashIcon, XIcon, AlertIcon } from "./Icons";
+import { saveNow, setState, uid, useStore, type Provider } from "../state/store";
+import { errorText } from "../lib/http";
+import { CheckIcon, PlusIcon, RefreshIcon, ServerIcon, SettingsIcon, TrashIcon, XIcon, AlertIcon } from "./Icons";
 
 type Test = { state: "idle" } | { state: "running" } | { state: "ok"; count: number } | { state: "error"; message: string };
 
@@ -94,6 +95,33 @@ function ContextBarChoice() {
   );
 }
 
+/** Whether saved code reaches the page straight away, or on the next restart. */
+function HotReloadChoice() {
+  const on = useStore((s) => s.hotReload);
+  return (
+    <div className="setting-row">
+      <span>
+        Hot reload
+        <small className="setting-hint">Shows code changes as soon as they're saved. Off, they show after Restart window, or when pi calls restart_app once it has finished editing this app. A change that reloads the page stops a reply in progress.</small>
+      </span>
+      <div className="segmented" role="radiogroup" aria-label="Hot reload">
+        {[true, false].map((value) => (
+          <button
+            key={String(value)}
+            type="button"
+            role="radio"
+            aria-checked={on === value}
+            className={on === value ? "is-active" : ""}
+            onClick={() => setState((s) => ({ ...s, hotReload: value }))}
+          >
+            {value ? "On" : "Off"}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 /** Shows or hides the GPU load meter in the header. */
 function GpuLoadChoice() {
   const show = useStore((s) => s.showGpuLoad);
@@ -115,6 +143,101 @@ function GpuLoadChoice() {
         ))}
       </div>
     </div>
+  );
+}
+
+/**
+ * The daemon's address, straight to its port. The page's /api proxy points at
+ * whatever daemon was running when the page loaded, which after a restart is
+ * dead, so a restart must not go through it.
+ */
+const apiDirect = () => `http://127.0.0.1:${import.meta.env.VITE_API_PORT}`;
+
+/** The restart request, through the page's proxy, falling back to the daemon straight. */
+async function requestRestart() {
+  try {
+    const res = await fetch("/api/restart", { method: "POST" });
+    if (res.ok) return;
+  } catch {
+    // The proxy is down; try the daemon straight.
+  }
+  const res = await fetch(`${apiDirect()}/api/restart`, { method: "POST" });
+  if (!res.ok) throw new Error(await errorText(res));
+}
+
+/** Waits for the restarted server to answer, then reloads the page. Gives up after a minute. */
+async function reloadWhenBack() {
+  const deadline = Date.now() + 60_000;
+  // The old server takes a moment to close; asking straight away would reach it.
+  await new Promise((r) => setTimeout(r, 1000));
+  while (Date.now() < deadline) {
+    try {
+      if ((await fetch(`${apiDirect()}/api/local/status`)).ok) return window.location.reload();
+    } catch {
+      // Still restarting.
+    }
+    await new Promise((r) => setTimeout(r, 500));
+  }
+  throw new Error("The app didn't come back within a minute. Check that it's still running.");
+}
+
+/** Reloads the page alone. The daemon, pi and llama-server keep running. */
+function RestartWindow() {
+  const reload = async () => {
+    await saveNow();
+    window.location.reload();
+  };
+  return (
+    <div className="setting-row">
+      <span>
+        Restart window
+        <small className="setting-hint">Reloads this page. The daemon and the loaded model keep running. A reply in progress stops.</small>
+      </span>
+      <button className="button" onClick={() => void reload()}>
+        <RefreshIcon size={15} />
+        Restart
+      </button>
+    </div>
+  );
+}
+
+/** Restarts the API daemon, which stops pi and llama-server, then reloads the page. */
+function HardRestart() {
+  const [state, setRestart] = useState<{ busy: boolean; error?: string }>({ busy: false });
+
+  const restart = async () => {
+    setRestart({ busy: true });
+    // The restart kills the daemon, and the page reloads through the dead proxy,
+    // so the save must finish before the request goes out. If it can't, say so
+    // instead of restarting with unsaved settings.
+    try {
+      await saveNow();
+    } catch (e) {
+      setRestart({ busy: false, error: `Could not save first: ${(e as Error).message}` });
+      return;
+    }
+    try {
+      await requestRestart();
+      await reloadWhenBack();
+    } catch (e) {
+      setRestart({ busy: false, error: (e as Error).message });
+    }
+  };
+
+  return (
+    <>
+      <div className="setting-row">
+        <span>
+          Hard restart
+          <small className="setting-hint">Restarts the daemon, which loads changes to server/ and the latest pi. Stops any reply in progress, and the model reloads on your next message.</small>
+        </span>
+        <button className="button" onClick={restart} disabled={state.busy}>
+          <RefreshIcon size={15} />
+          {state.busy ? "Restarting" : "Restart"}
+        </button>
+      </div>
+      {state.error && <p className="test-result is-error"><AlertIcon size={15} />{state.error}</p>}
+    </>
   );
 }
 
@@ -162,6 +285,9 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
               <div className="general-settings">
                 <ContextBarChoice />
                 <GpuLoadChoice />
+                <HotReloadChoice />
+                <RestartWindow />
+                <HardRestart />
               </div>
             ) : adding ? (
               <div className="adapter-grid">

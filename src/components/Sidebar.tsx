@@ -5,6 +5,7 @@ import { Logo } from "./Logo";
 
 const DAY = 86_400_000;
 
+/** Top-level chats by how recently they changed. Staff agents go under their parent instead. */
 function group(conversations: Conversation[]) {
   const now = Date.now();
   const groups: { label: string; items: Conversation[] }[] = [
@@ -13,19 +14,39 @@ function group(conversations: Conversation[]) {
     { label: "Previous 7 days", items: [] },
     { label: "Older", items: [] },
   ];
-  for (const c of [...conversations].sort((a, b) => b.updatedAt - a.updatedAt)) {
+  const ids = new Set(conversations.map((c) => c.id));
+  const topLevel = conversations.filter((c) => !c.parentId || !ids.has(c.parentId));
+  for (const c of topLevel.sort((a, b) => b.updatedAt - a.updatedAt)) {
     const age = now - c.updatedAt;
     groups[age < DAY ? 0 : age < 2 * DAY ? 1 : age < 7 * DAY ? 2 : 3].items.push(c);
   }
   return groups.filter((g) => g.items.length);
 }
 
+/** Deletes a chat and its staff agents. */
 function remove(id: string) {
-  setState((s) => ({
-    ...s,
-    conversations: s.conversations.filter((c) => c.id !== id),
-    activeId: s.activeId === id ? null : s.activeId,
-  }));
+  setState((s) => {
+    const gone = new Set([id, ...s.conversations.filter((c) => c.parentId === id).map((c) => c.id)]);
+    return {
+      ...s,
+      conversations: s.conversations.filter((c) => !gone.has(c.id)),
+      activeId: s.activeId && gone.has(s.activeId) ? null : s.activeId,
+    };
+  });
+}
+
+/** One chat in the list. */
+function HistoryItem({ conversation, active, child, onNavigate }: { conversation: Conversation; active: boolean; child?: boolean; onNavigate: () => void }) {
+  return (
+    <div className={`history-item ${active ? "is-active" : ""} ${child ? "is-child" : ""}`}>
+      <button className="history-link" onClick={() => { setState((s) => ({ ...s, activeId: conversation.id })); onNavigate(); }}>
+        {conversation.title}
+      </button>
+      <button className="history-delete" aria-label={child ? "Delete staff agent" : "Delete chat"} onClick={() => remove(conversation.id)}>
+        <TrashIcon size={14} />
+      </button>
+    </div>
+  );
 }
 
 export function Sidebar({ open, onSettings, onNavigate }: { open: boolean; onSettings: () => void; onNavigate: () => void }) {
@@ -50,13 +71,12 @@ export function Sidebar({ open, onSettings, onNavigate }: { open: boolean; onSet
           <section key={g.label}>
             <h3>{g.label}</h3>
             {g.items.map((c) => (
-              <div key={c.id} className={`history-item ${c.id === activeId ? "is-active" : ""}`}>
-                <button className="history-link" onClick={() => { setState((s) => ({ ...s, activeId: c.id })); onNavigate(); }}>
-                  {c.title}
-                </button>
-                <button className="history-delete" aria-label="Delete chat" onClick={() => remove(c.id)}>
-                  <TrashIcon size={14} />
-                </button>
+              <div key={c.id}>
+                <HistoryItem conversation={c} active={c.id === activeId} onNavigate={onNavigate} />
+                {conversations
+                  .filter((s) => s.parentId === c.id)
+                  .sort((a, b) => a.createdAt - b.createdAt)
+                  .map((s) => <HistoryItem key={s.id} conversation={s} active={s.id === activeId} child onNavigate={onNavigate} />)}
               </div>
             ))}
           </section>

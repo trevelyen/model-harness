@@ -1,9 +1,14 @@
 import { getModelAdapter } from "../adapters/registry";
-import type { ChatMessage } from "../adapters/types";
+import type { ChatMessage, FileChange } from "../adapters/types";
+import { directHarness } from "../harnesses/direct";
 import { getHarnessAdapter } from "../harnesses/registry";
-import { getState, setState, uid, updateConversation, updateMessage, type Message, type MessagePart } from "./store";
+import { getState, setState, uid, updateConversation, updateMessage, type Conversation, type Message, type MessagePart } from "./store";
 
-const running = new Map<string, AbortController>();
+// A fetch through Vite's proxy fails like this when a restart kills or restarts it.
+const PROXY_DOWN = /failed to fetch|networkerror|load failed/i;
+
+// A reply's controller, so a restart notice can say it was cut off.
+export const running = new Map<string, AbortController>();
 
 export function isRunning(conversationId: string) {
   return running.has(conversationId);
@@ -37,20 +42,68 @@ export async function send(text: string) {
   const s = getState();
   let conversationId = s.activeId;
   if (!conversationId || !s.conversations.some((c) => c.id === conversationId)) conversationId = newConversation();
+  await sendTo(conversationId, text);
+}
+
+/** Adds `text` to a chat as the user's message and gets the reply. */
+async function sendTo(conversationId: string, text: string) {
   const user: Message = { id: uid(), role: "user", content: text };
   updateConversation(conversationId, (c) => ({
     ...c,
-    title: c.messages.length === 0 ? titleFrom(text) : c.title,
+    // A staff agent keeps its name as its title.
+    title: c.messages.length === 0 && !c.staffName ? titleFrom(text) : c.title,
     messages: [...c.messages, user],
     updatedAt: Date.now(),
   }));
   await respond(conversationId);
 }
 
+/** A new staff agent chat under `parent`. The open chat stays open. */
+function newStaffConversation(parent: Conversation, name: string) {
+  const id = uid();
+  const now = Date.now();
+  setState((s) => ({
+    ...s,
+    conversations: [
+      { id, title: name, parentId: parent.id, staffName: name, messages: [], harnessId: parent.harnessId, reasoning: parent.reasoning, createdAt: now, updatedAt: now },
+      ...s.conversations,
+    ],
+  }));
+  return id;
+}
+
+/**
+ * The parent chat's model messaged a staff agent. Runs the message in that child
+ * chat, creating it the first time, as if it had been typed there, then hands the
+ * reply back to the server, which returns it from the model's staffagent call.
+ */
+async function runStaff(parentId: string, { requestId, name, message }: { requestId: string; name: string; message: string }) {
+  const answer = (body: { reply?: string; error?: string }) =>
+    fetch("/api/staffagent/reply", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ requestId, ...body }) }).catch(() => {});
+  const s = getState();
+  const parent = s.conversations.find((c) => c.id === parentId);
+  if (!parent) return answer({ error: "The parent chat is gone." });
+  if (parent.parentId) return answer({ error: "A staff agent can't have staff of its own." });
+  const existing = s.conversations.find((c) => c.parentId === parentId && c.staffName === name);
+  if (existing && running.has(existing.id)) return answer({ error: `${name} is already replying. Wait for it to finish, then try again.` });
+  const childId = existing?.id ?? newStaffConversation(parent, name);
+  await sendTo(childId, message);
+  const reply = getState().conversations.find((c) => c.id === childId)?.messages.at(-1);
+  if (reply?.role !== "assistant") return answer({ error: `${name} didn't reply.` });
+  if (reply.error) return answer({ error: cutOffError(reply) });
+  return answer({ reply: reply.content });
+}
+
+/** The reply cut off by a restart, shown by the restart notice. */
+export function cutOffError(message: Message): string | undefined {
+  return message.error === "cut-off" ? "The app restarted before this reply finished. Hit ↻ below to ask again." : message.error;
+}
+
 /**
  * Clears a reply's error. A reply that failed before saying anything is
  * removed entirely, so the chat reads as if it never happened.
  */
+
 export function dismissError(conversationId: string, messageId: string) {
   updateConversation(conversationId, (c) => ({
     ...c,
@@ -86,14 +139,17 @@ async function respond(conversationId: string) {
   const adapter = provider && getModelAdapter(provider.adapter);
   if (!s.selection || !provider || !adapter) return fail("Pick a model first. Use the model menu at the top.");
   const harnessDefinition = s.harnesses.find((h) => h.id === conversation.harnessId) ?? s.harnesses[0];
+  // A harness switched off sends the chat as it is, keeping only the chat's own thinking choice.
+  const on = harnessDefinition.enabled !== false;
   // The chat's thinking settings ride along with the harness's sampling settings.
   const choice = conversation.reasoning ?? s.reasoning;
   const supported = s.selection?.reasoning?.toggle;
   const definition = {
     ...harnessDefinition,
-    params: { ...harnessDefinition.params, ...(supported ? { thinking: choice.thinking, effort: choice.effort } : {}) },
+    systemPrompt: on ? harnessDefinition.systemPrompt : "",
+    params: { ...(on ? harnessDefinition.params : {}), ...(supported ? { thinking: choice.thinking, effort: choice.effort } : {}) },
   };
-  const harness = getHarnessAdapter(definition.kind);
+  const harness = on ? getHarnessAdapter(definition.kind) : directHarness;
 
   const controller = new AbortController();
   running.set(conversationId, controller);
@@ -102,6 +158,7 @@ async function respond(conversationId: string) {
   let usage: Message["usage"] = {};
   // Only agent harnesses send tool events; a reply without any keeps no parts.
   let parts: MessagePart[] = [];
+  let changes: FileChange[] = [];
   let hasTools = false;
   let status: string | undefined;
   let firstTokenAt: number | undefined;
@@ -113,6 +170,7 @@ async function respond(conversationId: string) {
       content: text,
       reasoning: reasoning || undefined,
       parts: hasTools ? parts : undefined,
+      changes: changes.length ? changes : undefined,
       usage,
       status,
       firstTokenAt,
@@ -152,6 +210,12 @@ async function respond(conversationId: string) {
         const index = parts.findIndex((p) => p.type === "tool" && p.id === tool.id);
         parts = index < 0 ? [...parts, { type: "tool", ...tool }] : parts.map((p, i) => (i === index ? { ...p, ...tool } : p));
         status = undefined;
+      } else if (event.type === "staff") {
+        // Runs alongside this reply, which is waiting on the staff agent's answer.
+        void runStaff(conversationId, event);
+        continue;
+      } else if (event.type === "change") {
+        changes = [...changes, { path: event.path, patch: event.patch }];
       } else if (event.type === "status") {
         status = event.text;
       } else {
@@ -178,7 +242,10 @@ async function respond(conversationId: string) {
     if (controller.signal.aborted) {
       updateMessage(conversationId, assistant.id, (m) => ({ ...m, streaming: false, status: undefined, finishedAt: Date.now() }));
     } else {
-      fail((error as Error).message);
+      // A restart killed the proxy mid-reply. Mark it so the restart notice can point at it.
+      const message = (error as Error).message;
+      const cutOff = PROXY_DOWN.test(message) && !message.includes(": ") && message.length < 40;
+      fail(cutOff ? "cut-off" : message);
     }
   } finally {
     running.delete(conversationId);

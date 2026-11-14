@@ -52,22 +52,26 @@ function ReasoningControls({
 }
 
 /**
- * The whole bar is what the model can handle. The lighter part is the limit
- * the backend was started with, and the solid part is what the chat has used.
+ * The whole ring is what the model can handle. The lighter arc is the limit
+ * the backend was started with, and the solid arc is what the chat has used.
  */
-function ContextBar({ used, limit, max }: { used: number; limit: number; max: number }) {
-  const share = (tokens: number) => `${Math.min(1, tokens / max) * 100}%`;
+function ContextRing({ used, limit, max }: { used: number; limit: number; max: number }) {
+  // Arcs are drawn as a share of 100, the circle's path length.
+  const share = (tokens: number) => Math.min(1, tokens / max) * 100;
   const percent = Math.round(Math.min(1, used / limit) * 100);
   const title =
     `${used.toLocaleString()} of ${limit.toLocaleString()} tokens used (${percent}%).` +
     (max > limit ? ` The model can handle up to ${max.toLocaleString()}; raise Context size in the harness panel to use more.` : "");
+  const arc = (length: number) => ({ strokeDasharray: `${length} ${100 - length}` });
   return (
-    <span className={`context-bar ${used / limit >= 0.8 ? "is-full" : ""}`} title={title} role="meter" aria-label="Context used" aria-valuenow={percent} aria-valuemin={0} aria-valuemax={100}>
-      <span className="context-bar-track">
-        {limit < max && <span className="context-bar-limit" style={{ width: share(limit) }} />}
+    <span className={`context-ring ${used / limit >= 0.8 ? "is-full" : ""}`} title={title} role="meter" aria-label="Context used" aria-valuenow={percent} aria-valuemin={0} aria-valuemax={100}>
+      <span className="context-ring-percent">{percent}%</span>
+      <svg width="22" height="22" viewBox="0 0 22 22" aria-hidden="true">
+        <circle className="context-ring-track" cx="11" cy="11" r="8.5" pathLength={100} />
+        {limit < max && <circle className="context-ring-limit" cx="11" cy="11" r="8.5" pathLength={100} style={arc(share(limit))} />}
         {/* At least a sliver, so a short chat still shows it has started. */}
-        {used > 0 && <span className="context-bar-used" style={{ width: `max(3px, ${share(used)})` }} />}
-      </span>
+        {used > 0 && <circle className="context-ring-used" cx="11" cy="11" r="8.5" pathLength={100} style={arc(Math.max(3, share(used)))} />}
+      </svg>
     </span>
   );
 }
@@ -126,11 +130,12 @@ export function Composer({
         />
         <div className="composer-bar">
           <div className="composer-bar-start">{reasoning && <ReasoningControls {...reasoning} />}</div>
-          {context ? <ContextBar {...context} /> : <span />}
+          <span />
           <div className="composer-bar-end">
+            {context && <ContextRing {...context} />}
             {busy ? (
               <button type="button" className="send is-stop" aria-label="Stop" onClick={onStop}>
-                <StopIcon size={16} />
+                <StopIcon size={20} />
               </button>
             ) : (
               <button type="submit" className="send" aria-label="Send" disabled={!text.trim()}>

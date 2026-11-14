@@ -7,8 +7,10 @@ import { Thread } from "./components/Thread";
 import { Composer } from "./components/Composer";
 import { SettingsDialog } from "./components/SettingsDialog";
 import { HarnessPanel } from "./components/HarnessPanel";
-import { SidebarIcon, SlidersIcon } from "./components/Icons";
+import { DiffIcon, SidebarIcon, SlidersIcon } from "./components/Icons";
 import { SystemMeters } from "./components/SystemMeters";
+import { RestartNotice } from "./components/RestartNotice";
+import { ChangesPane } from "./components/ChangesPane";
 
 export function App() {
   const conversation = useStore((s) => s.conversations.find((c) => c.id === s.activeId));
@@ -22,6 +24,8 @@ export function App() {
   const [sidebarOpen, setSidebarOpen] = useState(() => window.innerWidth > 860);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [harnessOpen, setHarnessOpen] = useState(false);
+  // The changes pane, opened by the round button in the corner. Empty for now.
+  const [changesOpen, setChangesOpen] = useState(false);
   const busy = !!conversation?.messages.at(-1)?.streaming;
   // The latest reply's prompt plus answer is what the next message builds on.
   const lastUsage = conversation?.messages.findLast((m) => m.usage?.inputTokens)?.usage;
@@ -83,6 +87,7 @@ export function App() {
           <ModelPicker />
           <div className="topbar-spacer" />
           <SystemMeters />
+          <RestartNotice />
           <button
             className={`icon-button harness-toggle ${harnessOpen ? "is-active" : ""}`}
             aria-label="Harness"
@@ -92,18 +97,31 @@ export function App() {
             <SlidersIcon size={18} />
           </button>
         </header>
-        <Thread conversation={conversation} onSuggest={(t) => void send(t)} />
-        <Composer
-          busy={busy}
-          onSend={(t) => void send(t)}
-          onStop={() => conversation && stop(conversation.id)}
-          context={context}
-          reasoning={reasoningSupport && { support: reasoningSupport, choice: reasoningChoice, onChange: (next) => setReasoning(() => next) }}
-          hint={hasModel ? (harnessName && harnessName !== "Default" ? `Harness: ${harnessName}` : undefined) : "Choose a model to start chatting."}
-        />
+        {/* The chat, and beside it the changes pane, both under the header. */}
+        <div className="main-body">
+          <div className="chat-column">
+            <Thread conversation={conversation} />
+            <Composer
+              busy={busy}
+              onSend={(t) => void send(t)}
+              onStop={() => conversation && stop(conversation.id)}
+              context={context}
+              reasoning={reasoningSupport && { support: reasoningSupport, choice: reasoningChoice, onChange: (next) => setReasoning(() => next) }}
+              hint={hasModel ? (harnessName && harnessName !== "Default" ? `Harness: ${harnessName}` : undefined) : "Choose a model to start chatting."}
+            />
+          </div>
+          <ChangesPane open={changesOpen} />
+        </div>
       </main>
       <HarnessPanel open={harnessOpen} onClose={() => setHarnessOpen(false)} />
       {settingsOpen && <SettingsDialog onClose={() => setSettingsOpen(false)} />}
+      <button
+        type="button" className={`corner-button ${changesOpen ? "is-active" : ""}`}
+        aria-label="Changes" aria-pressed={changesOpen} title="Changes"
+        onClick={() => setChangesOpen((o) => !o)}
+      >
+        <DiffIcon size={19} />
+      </button>
     </div>
   );
 }

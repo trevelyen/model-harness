@@ -1,5 +1,7 @@
 import type { ChatEvent } from "../adapters/types";
 import { errorText, ndjson } from "../lib/http";
+import { enabledHooks } from "./hooks";
+import { enabledTools } from "./tools";
 import type { HarnessAdapter } from "./types";
 
 /**
@@ -28,6 +30,9 @@ export const piHarness: HarnessAdapter = {
         systemPrompt: definition.systemPrompt,
         thinking: thinking === undefined ? undefined : thinking ? (effort ?? "high") : "off",
         params,
+        tools: enabledTools(definition.tools),
+        hooks: enabledHooks(definition.hooks),
+        loop: definition.loop ?? {},
         provider: { adapter: adapter.id, settings },
         model,
       }),

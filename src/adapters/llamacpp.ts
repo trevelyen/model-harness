@@ -53,8 +53,8 @@ export const llamaCppAdapter: ModelAdapter = {
     { key: "extraArgs", label: "Extra arguments", type: "text", placeholder: "--flash-attn on" },
   ],
   live: true,
-  // contextSize is set with the slider in the harness panel, not here.
-  defaults: { modelsDir: "./models", binary: "llama-server", gpuLayers: "", contextSize: "16384", extraArgs: "" },
+  // contextSize and kvCache are set in the harness panel, not here.
+  defaults: { modelsDir: "./models", binary: "llama-server", gpuLayers: "", contextSize: "98304", kvCache: "q8_0", extraArgs: "" },
   async listModels(settings, signal) {
     const res = await fetch(`/api/local/models?dir=${encodeURIComponent(settings.modelsDir || "./models")}`, { signal });
     if (!res.ok) throw new Error(await errorText(res));

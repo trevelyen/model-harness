@@ -1,16 +1,15 @@
-import { getHarnessAdapter, harnessAdapters } from "../harnesses/registry";
-import type { HarnessDefinition } from "../harnesses/types";
+import { getHarnessAdapter } from "../harnesses/registry";
+import { harnessHooks } from "../harnesses/hooks";
+import { harnessTools, toolOn, type HarnessTool } from "../harnesses/tools";
+import type { AgentLoop, HarnessDefinition } from "../harnesses/types";
 import type { GenerationParams } from "../adapters/types";
 import { setState, uid, useStore, type SavedPrompt } from "../state/store";
 import { useEffect, useRef, useState } from "react";
 import { FolderPicker } from "./FolderPicker";
-import { CheckIcon, ChevronDownIcon, FolderIcon, HookIcon, LoopIcon, PlusIcon, SaveIcon, ToolIcon, TrashIcon, XIcon } from "./Icons";
+import { CheckIcon, ChevronDownIcon, FolderIcon, PlusIcon, SaveIcon, TrashIcon, XIcon } from "./Icons";
 
-const PLANNED = [
-  { icon: ToolIcon, title: "Tools", text: "Give the model functions to call: shell, files, web, or your own." },
-  { icon: LoopIcon, title: "Agent loop", text: "Let it plan, act and check its work over several steps." },
-  { icon: HookIcon, title: "Hooks", text: "Run your own code before and after each turn." },
-];
+const TABS = ["Settings", "Tools", "Agent loop", "Hooks"] as const;
+type Tab = (typeof TABS)[number];
 
 interface SliderProps {
   label: string;
@@ -84,20 +83,34 @@ function ContextSlider() {
   );
   if (provider?.adapter !== "llamacpp") return null;
 
-  const set = (n: number | undefined) =>
+  const setSetting = (key: string, value: string) =>
     setState((s) => ({
       ...s,
-      providers: s.providers.map((p) => (p.id === provider.id ? { ...p, settings: { ...p.settings, contextSize: String(n) } } : p)),
+      providers: s.providers.map((p) => (p.id === provider.id ? { ...p, settings: { ...p.settings, [key]: value } } : p)),
     }));
+  const halfCache = provider.settings.kvCache === "q8_0";
 
   return (
-    <TokenSlider
-      label="Context size"
-      steps={modelMax ? CONTEXT_STEPS.filter((n) => n <= modelMax) : CONTEXT_STEPS}
-      value={Number(provider.settings.contextSize) || 16384}
-      onChange={set}
-      hint="Most the whole chat can hold. Higher = longer chats, more VRAM. The model reloads on your next message."
-    />
+    <>
+      <TokenSlider
+        label="Context size"
+        steps={modelMax ? CONTEXT_STEPS.filter((n) => n <= modelMax) : CONTEXT_STEPS}
+        value={Number(provider.settings.contextSize) || 16384}
+        onChange={(n) => setSetting("contextSize", String(n))}
+        hint="Most the whole chat can hold. Higher = longer chats, more VRAM. The model reloads on your next message."
+      />
+      <div className="field">
+        <label>
+          Half-size cache
+          <button
+            type="button" role="switch" aria-checked={halfCache} aria-label="Half-size cache"
+            className={`switch ${halfCache ? "is-on" : ""}`}
+            onClick={() => setSetting("kvCache", halfCache ? "" : "q8_0")}
+          />
+        </label>
+        <small>Stores the context at 8-bit, so the same VRAM holds about twice as much. Quality barely changes. The model reloads on your next message.</small>
+      </div>
+    </>
   );
 }
 
@@ -250,9 +263,120 @@ function update(id: string, patch: Partial<HarnessDefinition>) {
   setState((s) => ({ ...s, harnesses: s.harnesses.map((h) => (h.id === id ? { ...h, ...patch } : h)) }));
 }
 
+/** A pill's name. Click selects the harness; click again on the selected one to rename it. */
+function ChipName({ harness, active }: { harness: HarnessDefinition; active: boolean }) {
+  const [draft, setDraft] = useState<string | null>(null);
+  const save = () => {
+    const name = draft?.trim();
+    if (name) update(harness.id, { name });
+    setDraft(null);
+  };
+  if (draft !== null) {
+    return (
+      <input
+        className="chip-name is-editing" autoFocus value={draft} aria-label="Harness name"
+        size={Math.max(draft.length, 4)}
+        onChange={(e) => setDraft(e.target.value)}
+        onFocus={(e) => e.target.select()}
+        onBlur={save}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") save();
+          if (e.key === "Escape") setDraft(null);
+        }}
+      />
+    );
+  }
+  return (
+    <button className="chip-name" title={active ? "Rename" : undefined} onClick={() => (active ? setDraft(harness.name) : select(harness.id))}>
+      <span className="chip-label">{harness.name}</span>
+    </button>
+  );
+}
+
+/** One tool or hook, with the switch that gives it to pi or not. */
+function ToolCard({ tool, on, onToggle }: { tool: Pick<HarnessTool, "id" | "name" | "description">; on: boolean; onToggle: (on: boolean) => void }) {
+  return (
+    <div className={`tool-card ${on ? "" : "is-off"}`}>
+      <div className="tool-card-text">
+        <strong>{tool.name}</strong>
+        <code>{tool.id}</code>
+        <span>{tool.description}</span>
+      </div>
+      <button
+        type="button" role="switch" aria-checked={on} aria-label={tool.name}
+        className={`switch ${on ? "is-on" : ""}`}
+        onClick={() => onToggle(!on)}
+      />
+    </div>
+  );
+}
+
+const RESERVE_STEPS = [4096, 8192, 16384, 24576, 32768, 49152, 65536];
+const KEEP_STEPS = [4096, 8192, 12288, 16384, 20000, 32768, 49152, 65536];
+
+/** A labelled switch, like Half-size cache. */
+function Toggle({ label, hint, on, onChange }: { label: string; hint: string; on: boolean; onChange: (on: boolean) => void }) {
+  return (
+    <div className="field">
+      <label>
+        {label}
+        <button type="button" role="switch" aria-checked={on} aria-label={label} className={`switch ${on ? "is-on" : ""}`} onClick={() => onChange(!on)} />
+      </label>
+      <small>{hint}</small>
+    </div>
+  );
+}
+
+/** pi's loop settings: how long it may run, and how it handles a full context and failed requests. */
+function AgentLoopTab({ loop, onChange }: { loop: AgentLoop; onChange: (patch: Partial<AgentLoop>) => void }) {
+  const compaction = loop.compaction ?? true;
+  const retry = loop.retry ?? true;
+  return (
+    <>
+      <Slider
+        label="Step limit" min={0} max={100} step={1} off={0}
+        value={loop.maxSteps ?? 0}
+        onChange={(v) => onChange({ maxSteps: v })}
+        hint="Most steps pi takes with tools for one message. After that it's told to stop and answer. Off = no limit."
+      />
+      <Toggle
+        label="Compact long chats" on={compaction} onChange={(on) => onChange({ compaction: on })}
+        hint="When the context is nearly full, pi summarises older messages so the chat can carry on."
+      />
+      {compaction && (
+        <>
+          <TokenSlider
+            label="Room kept free" steps={RESERVE_STEPS} value={loop.reserveTokens ?? 16384}
+            onChange={(v) => onChange({ reserveTokens: v })}
+            hint="Compacting starts when less than this is left. Higher = compacts sooner, with more room for the reply."
+          />
+          <TokenSlider
+            label="Kept word for word" steps={KEEP_STEPS} value={loop.keepRecentTokens ?? 20000}
+            onChange={(v) => onChange({ keepRecentTokens: v })}
+            hint="The most recent part of the chat that isn't summarised. Higher = more detail kept, less room saved."
+          />
+        </>
+      )}
+      <Toggle
+        label="Retry failed requests" on={retry} onChange={(on) => onChange({ retry: on })}
+        hint="Tries again when the model is overloaded or a request fails for a passing reason."
+      />
+      {retry && (
+        <Slider
+          label="Retries" min={1} max={10} step={1}
+          value={loop.maxRetries ?? 3}
+          onChange={(v) => onChange({ maxRetries: v })}
+          hint="Most tries before pi gives up on a request."
+        />
+      )}
+    </>
+  );
+}
+
 export function HarnessPanel({ open, onClose }: { open: boolean; onClose: () => void }) {
   const { harnesses, current } = useActiveHarness();
   const [browsing, setBrowsing] = useState(false);
+  const [tab, setTab] = useState<Tab>("Settings");
   const kind = getHarnessAdapter(current.kind);
   const params = current.params;
   const setParam = (key: keyof GenerationParams, value: number | undefined) =>
@@ -278,39 +402,45 @@ export function HarnessPanel({ open, onClose }: { open: boolean; onClose: () => 
   return (
     <aside className={`harness ${open ? "is-open" : ""}`} aria-hidden={!open}>
       <header className="harness-head">
-        <div>
-          <h2>Harness</h2>
-          <p>How this chat talks to the model.</p>
-        </div>
+        <h2>Harness</h2>
         <button className="icon-button" aria-label="Close" onClick={onClose}><XIcon size={17} /></button>
       </header>
 
+      <div className="chips harness-chips">
+        {harnesses.map((h) => {
+          const on = h.enabled !== false;
+          return (
+            <div key={h.id} className={`chip has-switch ${h.id === current.id ? "is-active" : ""} ${on ? "" : "is-off"}`}>
+              <ChipName harness={h} active={h.id === current.id} />
+              <button
+                type="button" role="switch" aria-checked={on} aria-label={`${h.name} on`}
+                title={on ? "On. Chats use this harness." : "Off. Chats go straight to the model."}
+                className={`switch is-small ${on ? "is-on" : ""}`}
+                onClick={() => update(h.id, { enabled: !on })}
+              />
+            </div>
+          );
+        })}
+        <button className="chip-add" onClick={create} aria-label="New harness"><PlusIcon size={14} /></button>
+      </div>
+
+      <div className="segmented harness-tabs" role="tablist" aria-label="Harness sections">
+        {TABS.map((t) => (
+          <button key={t} role="tab" aria-selected={t === tab} className={t === tab ? "is-active" : ""} onClick={() => setTab(t)}>{t}</button>
+        ))}
+      </div>
+
       <div className="harness-scroll">
-        <div className="chips">
-          {harnesses.map((h) => (
-            <button key={h.id} className={`chip ${h.id === current.id ? "is-active" : ""}`} onClick={() => select(h.id)}>{h.name}</button>
-          ))}
-          <button className="chip is-add" onClick={create} aria-label="New harness"><PlusIcon size={14} /></button>
-        </div>
-
+        {tab === "Settings" && (<>
         <div className="field">
-          <label>Name</label>
-          <input value={current.name} onChange={(e) => update(current.id, { name: e.target.value })} />
-        </div>
-
-        <div className="field">
-          <label>Runs with</label>
-          <div className="kind-list">
-            {harnessAdapters.map((a) => (
-              <button key={a.id} className={`kind ${a.id === current.kind ? "is-active" : ""}`} onClick={() => update(current.id, { kind: a.id })}>
-                <span className="kind-title">
-                  {a.label}
-                  {a.status === "stub" && <em className="badge">Soon</em>}
-                </span>
-                <span className="kind-text">{a.description}</span>
-              </button>
-            ))}
-          </div>
+          <label>
+            Use pi
+            <button
+              type="button" role="switch" aria-checked={kind.id === "pi"} aria-label="Use pi"
+              className={`switch ${kind.id === "pi" ? "is-on" : ""}`}
+              onClick={() => update(current.id, { kind: kind.id === "pi" ? "direct" : "pi" })}
+            />
+          </label>
         </div>
 
         {kind.id === "pi" && (
@@ -399,23 +529,44 @@ export function HarnessPanel({ open, onClose }: { open: boolean; onClose: () => 
           hint="Lower = rare words allowed. Higher = only strong picks. 0 = off."
         />
 
-        <div className="planned">
-          {PLANNED.map(({ icon: Icon, title, text }) => (
-            <div key={title} className="planned-card">
-              <Icon size={17} />
-              <div>
-                <strong>{title} <em className="badge">Soon</em></strong>
-                <span>{text}</span>
-              </div>
-            </div>
-          ))}
-        </div>
-
         {harnesses.length > 1 && (
           <button className="button is-ghost is-danger harness-delete" onClick={remove}>
             <TrashIcon size={15} />
             Delete this harness
           </button>
+        )}
+        </>)}
+
+        {tab === "Agent loop" && (
+          <>
+            {kind.id !== "pi" && <small className="tool-cards-note">These only apply with Use pi on.</small>}
+            <AgentLoopTab loop={current.loop ?? {}} onChange={(patch) => update(current.id, { loop: { ...current.loop, ...patch } })} />
+          </>
+        )}
+
+        {tab === "Hooks" && (
+          <div className="tool-cards">
+            {kind.id !== "pi" && <small className="tool-cards-note">Hooks only run with Use pi on.</small>}
+            <section className="tool-group">
+              {harnessHooks.map((h) => (
+                <ToolCard key={h.id} tool={h} on={current.hooks?.[h.id] ?? h.defaultOn} onToggle={(on) => update(current.id, { hooks: { ...current.hooks, [h.id]: on } })} />
+              ))}
+            </section>
+          </div>
+        )}
+
+        {tab === "Tools" && (
+          <div className="tool-cards">
+            {kind.id !== "pi" && <small className="tool-cards-note">Tools only run with Use pi on.</small>}
+            {(["pi", "app"] as const).map((group) => (
+              <section key={group} className="tool-group">
+                <h3>{group === "pi" ? "Pi" : "Custom"}</h3>
+                {harnessTools.filter((t) => t.group === group).map((t) => (
+                  <ToolCard key={t.id} tool={t} on={toolOn(current.tools, t)} onToggle={(on) => update(current.id, { tools: { ...current.tools, [t.id]: on } })} />
+                ))}
+              </section>
+            ))}
+          </div>
         )}
       </div>
     </aside>

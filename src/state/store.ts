@@ -1,5 +1,5 @@
 import { useSyncExternalStore } from "react";
-import type { Effort, ReasoningSupport, Settings, ToolEvent, Usage } from "../adapters/types";
+import type { Effort, FileChange, ReasoningSupport, Settings, ToolEvent, Usage } from "../adapters/types";
 import type { HarnessDefinition } from "../harnesses/types";
 import { defaultHarness } from "../harnesses/registry";
 
@@ -27,6 +27,8 @@ export interface Message {
    * tools it ran, then more text. `content` still holds all the text joined.
    */
   parts?: MessagePart[];
+  /** Files this reply changed, in order, for the changes pane. */
+  changes?: FileChange[];
   startedAt?: number;
   /** When the first text or reasoning arrived, after loading and reading the prompt. */
   firstTokenAt?: number;
@@ -56,6 +58,10 @@ export interface Conversation {
   reasoning?: ReasoningChoice;
   createdAt: number;
   updatedAt: number;
+  /** The parent chat this staff agent belongs to. Absent for top-level chats. */
+  parentId?: string;
+  /** The staff slug, set by the parent agent when it created this chat. */
+  staffName?: string;
 }
 
 export interface Selection {
@@ -78,6 +84,8 @@ export interface State {
   contextBar: "model" | "limit";
   /** Whether the header shows the GPU load meter. VRAM and RAM always show. */
   showGpuLoad: boolean;
+  /** Send saved code to the page straight away. Off, it reaches the page on a restart. Read by vite.config.ts and server/pi.ts. */
+  hotReload: boolean;
   prompts: SavedPrompt[];
 }
 
@@ -95,7 +103,7 @@ const seed: State = {
       id: "local",
       name: "Local GGUF",
       adapter: "llamacpp",
-      settings: { modelsDir: "./models", binary: "llama-server", gpuLayers: "", contextSize: "16384", extraArgs: "" },
+      settings: { modelsDir: "./models", binary: "llama-server", gpuLayers: "", contextSize: "98304", kvCache: "q8_0", extraArgs: "" },
     },
   ],
   harnesses: [defaultHarness],
@@ -106,6 +114,7 @@ const seed: State = {
   reasoning: { effort: "high" },
   contextBar: "model",
   showGpuLoad: false,
+  hotReload: false,
   prompts: [],
 };
 
@@ -158,6 +167,12 @@ function saveSecrets(providers: Provider[]) {
   }
 }
 
+/** The full settings, keys included, for the server's backup in the home folder. */
+function fullSettingsJson(s: State) {
+  const { providers, harnesses, selection, harnessId, activeId, reasoning, contextBar, showGpuLoad, hotReload, prompts } = s;
+  return JSON.stringify({ providers, harnesses, selection, harnessId, activeId, reasoning, contextBar, showGpuLoad, hotReload, prompts });
+}
+
 let state: State = seed;
 const listeners = new Set<() => void>();
 let saveTimer: number | undefined;
@@ -167,8 +182,8 @@ let savedSettingsJson = "";
 const savedChats = new Map<string, Conversation>();
 
 function settingsJson(s: State) {
-  const { providers, harnesses, selection, harnessId, activeId, reasoning, contextBar, showGpuLoad, prompts } = s;
-  return JSON.stringify({ providers: providers.map(withoutSecrets), harnesses, selection, harnessId, activeId, reasoning, contextBar, showGpuLoad, prompts });
+  const { providers, harnesses, selection, harnessId, activeId, reasoning, contextBar, showGpuLoad, hotReload, prompts } = s;
+  return JSON.stringify({ providers: providers.map(withoutSecrets), harnesses, selection, harnessId, activeId, reasoning, contextBar, showGpuLoad, hotReload, prompts });
 }
 
 async function put(path: string, body: string) {
@@ -180,6 +195,8 @@ async function flush() {
   const s = state;
   saveSecrets(s.providers);
   try {
+    // The backup copy keeps the keys, so it always goes up, not just on change.
+    await put("/api/data/state/backup", fullSettingsJson(s));
     const json = settingsJson(s);
     if (json !== savedSettingsJson) {
       await put("/api/data/state", json);
@@ -200,6 +217,12 @@ async function flush() {
     // The dev server is down or restarting; the next change retries.
     console.warn("Could not save to data/:", error);
   }
+}
+
+/** Writes any unsaved changes now, before something like a restart. */
+export function saveNow() {
+  window.clearTimeout(saveTimer);
+  return flush();
 }
 
 function save() {

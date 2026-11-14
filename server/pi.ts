@@ -2,10 +2,11 @@
 // pointed at the chat's model through a models.json of its own, and its
 // event stream is turned into the app's chat events, one JSON object a line.
 import type { ServerResponse } from "node:http";
-import { spawn } from "node:child_process";
-import { mkdir, stat, writeFile } from "node:fs/promises";
+import { spawn, type ChildProcess } from "node:child_process";
+import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
-import { join, resolve } from "node:path";
+import { isAbsolute, join, relative, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
 // pi's settings, sessions and models.json live here, away from ~/.pi.
 const PI_DIR = join(resolve(process.env.MODEL_HARNESS_DATA || "data"), "pi");
@@ -35,6 +36,61 @@ export interface PiRunRequest {
   /** "off" or an effort level. Left out when the model cannot think. */
   thinking?: string;
   params: { temperature?: number; topP?: number; topK?: number; minP?: number; maxTokens?: number };
+  /** Every tool this harness gives pi, its own and the app's. Left out, pi uses its defaults. */
+  tools?: string[];
+  /** The hooks pi runs, from pi-extensions/harness-hooks.ts. */
+  hooks?: string[];
+  /** Agent loop settings. A field left out keeps pi's default. */
+  loop?: {
+    maxSteps?: number;
+    compaction?: boolean;
+    reserveTokens?: number;
+    keepRecentTokens?: number;
+    retry?: boolean;
+    maxRetries?: number;
+  };
+}
+
+// The app's own tools for pi, which this extension adds.
+const HARNESS_TOOLS = fileURLToPath(new URL("../pi-extensions/harness-tools.ts", import.meta.url));
+const APP_TOOLS = new Set(["read_status", "restart_daemon", "restart_app", "staffagent"]);
+// Always loaded: gives write results a patch, as edit results already have, for the changes pane.
+const HARNESS_CHANGES = fileURLToPath(new URL("../pi-extensions/harness-changes.ts", import.meta.url));
+// Tells the model to restart once it has finished, when it is editing this app with hot reload off.
+const HARNESS_SELF = fileURLToPath(new URL("../pi-extensions/harness-self.ts", import.meta.url));
+const APP_ROOT = fileURLToPath(new URL("..", import.meta.url));
+// The hooks, and the step limit, which this extension runs.
+const HARNESS_HOOKS = fileURLToPath(new URL("../pi-extensions/harness-hooks.ts", import.meta.url));
+
+// Every pi still running, so a restart can stop them all, or wait for them.
+const running = new Map<ChildProcess, { conversationId: string; startedAt: number }>();
+const idleListeners: (() => void)[] = [];
+
+/** Stops every pi run. Their sessions are on disk, so each chat carries on with its next message. */
+export function stopAllPi() {
+  for (const child of running.keys()) child.kill("SIGTERM");
+  running.clear();
+}
+
+// Each replying chat's event stream, so a staff agent request can reach the page through it.
+const streams = new Map<string, (event: object) => void>();
+
+/** Adds an event to a running chat's stream. False when that chat isn't replying. */
+export function sendToRun(conversationId: string, event: object) {
+  const send = streams.get(conversationId);
+  send?.(event);
+  return !!send;
+}
+
+/** The pi runs in progress, one per chat that is replying. */
+export function piRuns() {
+  return [...running.values()];
+}
+
+/** Calls `listener` once no pi run is left, straight away if none is running. */
+export function whenPiIdle(listener: () => void) {
+  if (running.size === 0) listener();
+  else idleListeners.push(listener);
 }
 
 const expandHome = (path: string) => (path.startsWith("~") ? join(homedir(), path.slice(1)) : path);
@@ -70,9 +126,89 @@ async function writeModels(endpoint: PiEndpoint, params: PiRunRequest["params"])
   await writeFile(join(PI_DIR, "models.json"), JSON.stringify(models, null, 2));
 }
 
+/** Whether `path` is `root` or a folder inside it. */
+function isInside(path: string, root: string) {
+  const inside = relative(root, path);
+  return !inside.startsWith("..") && !isAbsolute(inside);
+}
+
+/** Settings → Hot reload, which the app saves with its other settings. Off unless set. */
+async function hotReloadOn() {
+  try {
+    return JSON.parse(await readFile(join(resolve(process.env.MODEL_HARNESS_DATA || "data"), "state.json"), "utf8")).hotReload === true;
+  } catch {
+    return false;
+  }
+}
+
+/** Sets pi's compaction and retry settings for the next run, keeping the rest of its settings.json. */
+async function writeSettings(loop: PiRunRequest["loop"] = {}) {
+  const path = join(PI_DIR, "settings.json");
+  const settings = JSON.parse(await readFile(path, "utf8").catch(() => "{}"));
+  // Fields left out are dropped, so pi falls back to its own defaults.
+  const defined = (fields: Record<string, unknown>) => Object.fromEntries(Object.entries(fields).filter(([, v]) => v !== undefined));
+  settings.compaction = defined({ enabled: loop.compaction, reserveTokens: loop.reserveTokens, keepRecentTokens: loop.keepRecentTokens });
+  settings.retry = defined({ enabled: loop.retry, maxRetries: loop.maxRetries });
+  await mkdir(PI_DIR, { recursive: true });
+  await writeFile(path, JSON.stringify(settings, null, 2));
+}
+
 function resultText(result: { content?: { type: string; text?: string }[] } | undefined) {
   const text = (result?.content ?? []).filter((c) => c.type === "text").map((c) => c.text).join("\n");
   return text.length > MAX_RESULT ? `${text.slice(0, MAX_RESULT)}\n… ${text.length - MAX_RESULT} more characters` : text;
+}
+
+// The subagent tool's structured result, re-shaped for the view: each child
+// gets a compact tool-call trace and its final output, so the browser does
+// not have to walk the child's raw messages.
+function subagentDetails(details: any): any {
+  if (!details || !Array.isArray(details.results)) return details;
+  const line = (name: string, args: any = {}) => {
+    const s = (k: string) => (typeof args[k] === "string" ? args[k] : undefined);
+    const home = (p: string) => p.replace(/^\/home\/[^/]+/, "~");
+    switch (name) {
+      case "bash": return "$ " + (s("command") ?? "");
+      case "read": return "read " + home(s("file_path") || s("path") || "");
+      case "write": return "write " + home(s("file_path") || s("path") || "");
+      case "edit": return "edit " + home(s("file_path") || s("path") || "");
+      case "ls": return "ls " + home(s("path") || ".");
+      case "find": return `find ${s("pattern") ?? "*"} in ${home(s("path") || ".")}`;
+      case "grep": return `grep /${s("pattern") ?? ""}/ in ${home(s("path") || ".")}`;
+      default: {
+        const j = JSON.stringify(args);
+        return `${name} ${j.length > 40 ? j.slice(0, 40) + "…" : j}`;
+      }
+    }
+  };
+  const finalText = (messages: any[] = []) => {
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const m = messages[i];
+      if (m?.role !== "assistant") continue;
+      for (const part of m.content ?? []) if (part.type === "text") return part.text;
+    }
+    return "";
+  };
+  const results = details.results.map((r: any) => {
+    const trace: string[] = [];
+    for (const m of r.messages ?? []) {
+      if (m?.role !== "assistant") continue;
+      for (const part of m.content ?? []) if (part.type === "toolCall") trace.push(line(part.name, part.arguments));
+    }
+    const output = r.status === "failed" || r.status === "aborted"
+      ? [r.errorMessage?.trim(), r.stderr?.trim(), finalText(r.messages)].filter(Boolean).join("\n\n") || "(no output)"
+      : finalText(r.messages) || "";
+    return {
+      agent: r.agent,
+      task: r.task,
+      status: r.status,
+      step: r.step,
+      model: r.model,
+      usage: r.usage ? { input: r.usage.input, output: r.usage.output, turns: r.usage.turns, contextTokens: r.usage.contextTokens } : undefined,
+      trace: trace.slice(-40),
+      output,
+    };
+  });
+  return { mode: details.mode, results, isError: details.isError };
 }
 
 /** Streams one pi run to `res` as chat events, ending with the run or on Stop. `initial` events go first. */
@@ -81,11 +217,13 @@ export async function runPi(run: PiRunRequest, endpoint: PiEndpoint, res: Server
   const info = await stat(cwd).catch(() => undefined);
   if (!info?.isDirectory()) throw new Error(`The working folder ${cwd} does not exist. Set it in the harness panel.`);
   await writeModels(endpoint, run.params);
+  await writeSettings(run.loop);
 
   res.statusCode = 200;
   res.setHeader("content-type", "application/x-ndjson");
   res.setHeader("cache-control", "no-cache");
   const send = (event: object) => res.write(`${JSON.stringify(event)}\n`);
+  streams.set(run.conversationId, send);
   initial.forEach(send);
   send({ type: "status", text: "Starting pi" });
 
@@ -93,11 +231,37 @@ export async function runPi(run: PiRunRequest, endpoint: PiEndpoint, res: Server
   args.push("--provider", PROVIDER, "--model", endpoint.model);
   if (run.thinking) args.push("--thinking", run.thinking);
   if (run.systemPrompt?.trim()) args.push("--system-prompt", run.systemPrompt);
+  args.push("-e", HARNESS_CHANGES);
+  const appTools = (run.tools ?? []).filter((t) => APP_TOOLS.has(t));
+  if (appTools.length) args.push("-e", HARNESS_TOOLS);
+  const hooks = run.hooks ?? [];
+  const maxSteps = run.loop?.maxSteps ?? 0;
+  if (hooks.length || maxSteps) args.push("-e", HARNESS_HOOKS);
+  if (isInside(cwd, APP_ROOT) && !(await hotReloadOn())) args.push("-e", HARNESS_SELF);
+  // The list is exact: anything left out, built in or from an extension, is off.
+  if (run.tools) args.push(...(run.tools.length ? ["--tools", run.tools.join(",")] : ["--no-tools"]));
   const command = expandHome(run.command?.trim() || "pi");
+  // The app's ports stay out of pi's environment, so nothing it starts can take them.
+  const { PORT: _port, HOST: _host, API_PORT: apiPort, ...env } = process.env;
   const child = spawn(command, args, {
     cwd,
     stdio: ["pipe", "pipe", "pipe"],
-    env: { ...process.env, PI_CODING_AGENT_DIR: PI_DIR, MODEL_HARNESS_API_KEY: endpoint.apiKey || "none" },
+    env: {
+      ...env,
+      PI_CODING_AGENT_DIR: PI_DIR,
+      MODEL_HARNESS_API_KEY: endpoint.apiKey || "none",
+      // For the harness tools: where the daemon is, which run this is, and which tools are on.
+      MODEL_HARNESS_API: `http://127.0.0.1:${apiPort}`,
+      MODEL_HARNESS_RUN_ID: run.conversationId,
+      MODEL_HARNESS_TOOLS: appTools.join(","),
+      MODEL_HARNESS_HOOKS: hooks.join(","),
+      MODEL_HARNESS_MAX_STEPS: String(maxSteps),
+    },
+  });
+  running.set(child, { conversationId: run.conversationId, startedAt: Date.now() });
+  child.on("exit", () => {
+    running.delete(child);
+    if (running.size === 0) idleListeners.splice(0).forEach((listener) => listener());
   });
 
   const stderr: string[] = [];
@@ -110,6 +274,7 @@ export async function runPi(run: PiRunRequest, endpoint: PiEndpoint, res: Server
   const finish = (error?: string) => {
     if (finished) return;
     finished = true;
+    if (streams.get(run.conversationId) === send) streams.delete(run.conversationId);
     if (error) send({ type: "error", message: error });
     res.end();
     // Closing stdin asks pi to shut down; the timer catches one that will not.
@@ -171,8 +336,20 @@ export async function runPi(run: PiRunRequest, endpoint: PiEndpoint, res: Server
       case "tool_execution_start":
         send({ type: "tool", id: record.toolCallId, name: record.toolName, args: record.args });
         break;
+      case "tool_execution_update":
+        // Live progress from a tool that reports it, such as subagent's per-child status.
+        send({ type: "tool", id: record.toolCallId, name: record.toolName, args: record.args, details: record.toolName === "subagent" ? subagentDetails(record.partialResult?.details) : record.partialResult?.details });
+        break;
       case "tool_execution_end":
-        send({ type: "tool", id: record.toolCallId, name: record.toolName, result: resultText(record.result), isError: record.isError, done: true });
+        // `details` carries the tool's structured result, which the view can render richly.
+        send({ type: "tool", id: record.toolCallId, name: record.toolName, result: resultText(record.result), details: record.toolName === "subagent" ? subagentDetails(record.result?.details) : record.result?.details, isError: record.isError, done: true });
+        // A file the model changed, for the changes pane. Paths are shown relative to the working folder.
+        if (!record.isError && typeof record.result?.details?.patch === "string" && record.result.details.patch) {
+          const patch: string = record.result.details.patch;
+          // The end event has no arguments, but the patch names the file on its "+++" line.
+          const file = patch.match(/^\+\+\+ (.+)$/m)?.[1]?.trim() ?? "";
+          send({ type: "change", path: relative(cwd, resolve(cwd, file)), patch });
+        }
         break;
       case "agent_settled":
         finish();

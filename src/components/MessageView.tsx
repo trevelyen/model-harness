@@ -1,6 +1,9 @@
 import { memo, useState } from "react";
 import type { Message, MessagePart } from "../state/store";
+import { cutOffError } from "../state/chat";
+import { isSubagentDetails, subagentSummary } from "../subagent";
 import { Markdown } from "./Markdown";
+import { SubagentCard } from "./SubagentCard";
 import { AlertIcon, BrainIcon, CheckIcon, ChevronRightIcon, CopyIcon, InfoIcon, RefreshIcon, ToolIcon, XIcon } from "./Icons";
 
 function CopyButton({ text }: { text: string }) {
@@ -42,7 +45,29 @@ function toolSummary(args: Record<string, unknown> = {}) {
   return text === "{}" ? "" : text.split("\n")[0];
 }
 
+/** A subagent call, with the child's live status in the header. */
+function SubagentCall({ tool }: { tool: Extract<MessagePart, { type: "tool" }> }) {
+  const [open, setOpen] = useState(false);
+  const details = isSubagentDetails(tool.details) ? tool.details : null;
+  const state = !tool.done ? "is-running" : tool.isError ? "is-error" : "";
+  const summary = details ? subagentSummary(details, !!tool.done) : toolSummary(tool.args);
+  return (
+    <div className={`tool-call is-subagent ${state} ${open ? "is-open" : ""}`}>
+      <button className="tool-call-head" onClick={() => setOpen((o) => !o)} aria-expanded={open}>
+        <ToolIcon size={14} />
+        <span className="tool-call-name">subagent</span>
+        <span className={`tool-call-summary ${tool.done ? "" : "shimmer"}`}>{summary}</span>
+        {tool.isError && <AlertIcon size={14} />}
+        <ChevronRightIcon size={14} className="reasoning-chevron" />
+      </button>
+      {open && <SubagentCard details={details} result={tool.result} isError={tool.isError} args={tool.args} done={!!tool.done} />}
+    </div>
+  );
+}
+
+/** A tool an agent harness ran. Subagent calls get a dedicated view. */
 function ToolCall({ tool }: { tool: Extract<MessagePart, { type: "tool" }> }) {
+  if (tool.name === "subagent") return <SubagentCall tool={tool} />;
   const [open, setOpen] = useState(false);
   const state = !tool.done ? "is-running" : tool.isError ? "is-error" : "";
   return (
@@ -62,6 +87,53 @@ function ToolCall({ tool }: { tool: Extract<MessagePart, { type: "tool" }> }) {
       )}
     </div>
   );
+}
+
+type ToolPart = Extract<MessagePart, { type: "tool" }>;
+
+/** "bash ×3, read ×2, edit": which tools a run of calls used, most used first. */
+function toolCounts(tools: ToolPart[]) {
+  const counts = new Map<string, number>();
+  for (const t of tools) counts.set(t.name, (counts.get(t.name) ?? 0) + 1);
+  return [...counts].sort((a, b) => b[1] - a[1]).map(([name, n]) => (n > 1 ? `${name} ×${n}` : name)).join(", ");
+}
+
+/** A run of tool calls between two pieces of text, folded into one card. */
+function ToolGroup({ tools }: { tools: ToolPart[] }) {
+  const [open, setOpen] = useState(false);
+  const running = tools.find((t) => !t.done);
+  const failed = tools.some((t) => t.isError);
+  const state = running ? "is-running" : failed ? "is-error" : "";
+  return (
+    <div className={`tool-call tool-group ${state} ${open ? "is-open" : ""}`}>
+      <button className="tool-call-head" onClick={() => setOpen((o) => !o)} aria-expanded={open}>
+        <ToolIcon size={14} />
+        <span className="tool-call-name">{tools.length} tool calls</span>
+        <span className={`tool-call-summary ${running ? "shimmer" : ""}`}>
+          {running ? `${running.name} ${toolSummary(running.args)}` : toolCounts(tools)}
+        </span>
+        {failed && <AlertIcon size={14} />}
+        <ChevronRightIcon size={14} className="reasoning-chevron" />
+      </button>
+      {open && (
+        <div className="tool-group-list">
+          {tools.map((t) => <ToolCall key={t.id} tool={t} />)}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Message parts with each run of tool calls gathered up, so text and runs alternate. */
+function groupParts(parts: MessagePart[]) {
+  const out: ({ type: "text"; text: string; index: number } | { type: "tools"; tools: ToolPart[] })[] = [];
+  parts.forEach((part, index) => {
+    const last = out.at(-1);
+    if (part.type === "text") out.push({ ...part, index });
+    else if (last?.type === "tools") last.tools.push(part);
+    else out.push({ type: "tools", tools: [part] });
+  });
+  return out;
 }
 
 interface Stat {
@@ -131,12 +203,12 @@ export const MessageView = memo(function MessageView({
         </div>
       )}
       {message.parts
-        ? message.parts.map((part, i) =>
-            part.type === "tool" ? (
-              <ToolCall key={part.id} tool={part} />
+        ? groupParts(message.parts).map((group) =>
+            group.type === "tools" ? (
+              group.tools.length === 1 ? <ToolCall key={group.tools[0].id} tool={group.tools[0]} /> : <ToolGroup key={group.tools[0].id} tools={group.tools} />
             ) : (
-              <div key={i} className={message.streaming && i === message.parts!.length - 1 ? "is-streaming" : ""}>
-                <Markdown text={part.text} />
+              <div key={group.index} className={message.streaming && group.index === message.parts!.length - 1 ? "is-streaming" : ""}>
+                <Markdown text={group.text} />
               </div>
             ),
           )
@@ -148,7 +220,7 @@ export const MessageView = memo(function MessageView({
       {message.error && (
         <div className="error-card">
           <AlertIcon size={16} />
-          <span className="error-text">{message.error}</span>
+          <span className="error-text">{cutOffError(message)}</span>
           <button className="error-dismiss" aria-label="Dismiss error" onClick={onDismissError}>
             <XIcon size={15} />
           </button>

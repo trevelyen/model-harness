@@ -1,6 +1,5 @@
-// Dev-server middleware: a streaming proxy so the browser can reach any model
-// endpoint without CORS trouble, plus a launcher for local GGUF files.
-import type { Plugin } from "vite";
+// The API, served by server/daemon.ts: a streaming proxy so the browser can
+// reach any model endpoint without CORS trouble, plus a launcher for local GGUF files.
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { execFile, spawn, type ChildProcess } from "node:child_process";
 import { mkdir, readFile, readdir, stat } from "node:fs/promises";
@@ -8,10 +7,12 @@ import { createServer } from "node:net";
 import { freemem, homedir, totalmem, userInfo } from "node:os";
 import { join, basename, dirname, resolve } from "node:path";
 import { Readable } from "node:stream";
+import { fileURLToPath } from "node:url";
 import { pipeline } from "node:stream/promises";
 import { readHeader, reasoningSupport, type ReasoningSupport } from "./gguf.ts";
-import { deleteChat, isSafeId, readAll, writeChat, writeState } from "./data.ts";
-import { runPi, type PiEndpoint, type PiRunRequest } from "./pi.ts";
+import { deleteChat, isSafeId, readAll, writeBackup, writeChat, writeState } from "./data.ts";
+import { piRuns, runPi, sendToRun, stopAllPi, type PiEndpoint, type PiRunRequest } from "./pi.ts";
+import { randomUUID } from "node:crypto";
 
 const DROP_REQUEST_HEADERS = new Set([
   "host", "origin", "referer", "cookie", "connection", "content-length",
@@ -22,7 +23,7 @@ function expandHome(path: string) {
   return path.startsWith("~") ? join(homedir(), path.slice(1)) : path;
 }
 
-function sendJson(res: ServerResponse, status: number, body: unknown) {
+export function sendJson(res: ServerResponse, status: number, body: unknown) {
   res.statusCode = status;
   res.setHeader("content-type", "application/json");
   res.end(JSON.stringify(body));
@@ -44,6 +45,11 @@ async function proxy(req: IncomingMessage, res: ServerResponse, url: URL) {
   if (!target || !/^https?:\/\//.test(target)) {
     return sendJson(res, 400, { error: "Missing or invalid url parameter" });
   }
+  return forward(req, res, target);
+}
+
+/** Sends the request on to `target` and streams the answer back. */
+async function forward(req: IncomingMessage, res: ServerResponse, target: string) {
   const headers: Record<string, string> = {};
   for (const [key, value] of Object.entries(req.headers)) {
     if (!DROP_REQUEST_HEADERS.has(key) && typeof value === "string") headers[key] = value;
@@ -248,6 +254,8 @@ interface EnsureRequest {
   binary?: string;
   gpuLayers?: string;
   contextSize?: string;
+  /** "q8_0" stores the context cache at half size, so twice the context fits. Empty keeps llama-server's f16. */
+  kvCache?: string;
   extraArgs?: string;
 }
 
@@ -257,6 +265,7 @@ async function ensureLocal(options: EnsureRequest): Promise<{ server: LocalServe
   const args = ["-m", options.model, "--host", "127.0.0.1", "--jinja"];
   if (options.gpuLayers?.trim()) args.push("-ngl", options.gpuLayers.trim());
   if (options.contextSize?.trim()) args.push("-c", options.contextSize.trim());
+  if (options.kvCache === "q8_0") args.push("-ctk", "q8_0", "-ctv", "q8_0");
   if (options.extraArgs?.trim()) args.push(...options.extraArgs.trim().split(/\s+/));
   const key = JSON.stringify([binary, args]);
   if (local?.key === key && local.process.exitCode === null) {
@@ -318,7 +327,8 @@ async function piEndpoint({ provider, model }: PiRequest): Promise<{ endpoint: P
     return {
       endpoint: {
         api: "openai-completions",
-        baseUrl: `http://127.0.0.1:${server.port}/v1`,
+        // Through the daemon rather than straight to llama-server; see /api/llama/ in handle().
+        baseUrl: `http://127.0.0.1:${process.env.API_PORT}/api/llama/v1`,
         model: basename(server.model).replace(/\.gguf$/i, ""),
         reasoning: !!reasoning?.toggle,
         contextWindow: server.contextWindow,
@@ -347,11 +357,43 @@ async function piEndpoint({ provider, model }: PiRequest): Promise<{ endpoint: P
   throw new Error(`pi cannot use ${adapter} models yet`);
 }
 
-async function handle(req: IncomingMessage, res: ServerResponse, next: () => void) {
+// Staff agent messages waiting for the page to run them in the child chat, by request id.
+const staffWaiting = new Map<string, (answer: { reply?: string; error?: string }) => void>();
+
+/**
+ * The staffagent tool's message to a child chat. The page runs it, as if typed in
+ * the child, so it streams and saves like any chat, then answers /api/staffagent/reply.
+ * The request reaches the page through the parent chat's own reply stream.
+ */
+async function askStaff(req: IncomingMessage, res: ServerResponse) {
+  const { parentId, name, message } = JSON.parse((await readBody(req)).toString() || "{}") as { parentId?: string; name?: string; message?: string };
+  const staffName = name?.trim() ?? "";
+  if (!parentId || !isSafeId(parentId)) return sendJson(res, 400, { error: "Bad parent chat id" });
+  if (!staffName || staffName.length > 40) return sendJson(res, 400, { error: "Give the staff agent a short name, up to 40 characters." });
+  if (!message?.trim()) return sendJson(res, 400, { error: "No message given" });
+  const requestId = randomUUID();
+  const answer = new Promise<{ reply?: string; error?: string }>((resolve) => staffWaiting.set(requestId, resolve));
+  if (!sendToRun(parentId, { type: "staff", requestId, name: staffName, message })) {
+    staffWaiting.delete(requestId);
+    return sendJson(res, 409, { error: "The parent chat isn't replying, so there's no page to run the staff agent in." });
+  }
+  // The tool call stopped, for example with the parent's reply: stop waiting.
+  res.on("close", () => staffWaiting.delete(requestId));
+  const result = await answer;
+  return sendJson(res, result.error ? 502 : 200, result);
+}
+
+export async function handle(req: IncomingMessage, res: ServerResponse, next: () => void) {
   if (!req.url?.startsWith("/api/")) return next();
   if (isCrossSite(req)) return sendJson(res, 403, { error: "Cross-site requests are not allowed" });
   const url = new URL(req.url, "http://localhost");
   try {
+    // pi reaches llama-server through here. Bun, which pi runs on, reuses a connection
+    // llama-server has closed after a few requests and fails with ECONNRESET; Node does not.
+    if (url.pathname.startsWith("/api/llama/")) {
+      if (!local || local.process.exitCode !== null) return sendJson(res, 503, { error: "llama-server is not running" });
+      return await forward(req, res, `http://127.0.0.1:${local.port}/${url.pathname.slice("/api/llama/".length)}${url.search}`);
+    }
     if (url.pathname.startsWith("/api/data/chats/")) {
       const id = url.pathname.slice("/api/data/chats/".length);
       if (!isSafeId(id)) return sendJson(res, 400, { error: "Bad chat id" });
@@ -361,11 +403,28 @@ async function handle(req: IncomingMessage, res: ServerResponse, next: () => voi
       return sendJson(res, 200, { ok: true });
     }
     switch (url.pathname) {
+      case "/api/staffagent":
+        if (req.method !== "POST") return sendJson(res, 405, { error: "Use POST" });
+        return await askStaff(req, res);
+      case "/api/staffagent/reply": {
+        if (req.method !== "POST") return sendJson(res, 405, { error: "Use POST" });
+        const { requestId, reply, error } = JSON.parse((await readBody(req)).toString() || "{}") as { requestId?: string; reply?: string; error?: string };
+        const resolve = requestId && staffWaiting.get(requestId);
+        if (!resolve) return sendJson(res, 404, { error: "No staff agent message is waiting for that reply" });
+        staffWaiting.delete(requestId);
+        resolve({ reply, error });
+        return sendJson(res, 200, { ok: true });
+      }
       case "/api/data":
         return sendJson(res, 200, await readAll());
       case "/api/data/state":
         if (req.method !== "PUT") return sendJson(res, 405, { error: "Use PUT" });
         await writeState(JSON.parse((await readBody(req)).toString()));
+        return sendJson(res, 200, { ok: true });
+      case "/api/data/state/backup":
+        // The browser's copy with API keys included, for the home-folder backup.
+        if (req.method !== "PUT") return sendJson(res, 405, { error: "Use PUT" });
+        await writeBackup(JSON.parse((await readBody(req)).toString()));
         return sendJson(res, 200, { ok: true });
       case "/api/proxy":
         return await proxy(req, res, url);
@@ -440,18 +499,54 @@ async function handle(req: IncomingMessage, res: ServerResponse, next: () => voi
   }
 }
 
-export function apiPlugin(): Plugin {
+// Files only a restart loads: the daemon's code, and what Vite reads at start.
+const DAEMON_FILES = ["server/api.ts", "server/daemon.ts", "server/data.ts", "server/gguf.ts", "server/pi.ts"];
+const APP_FILES = ["vite.config.ts", "package.json"];
+const daemonStartedAt = Date.now();
+let appStartedAt = Number(process.env.APP_STARTED_AT) || daemonStartedAt;
+
+/** Records that Vite started again, so its changes count as loaded. */
+export function appRestarted() {
+  appStartedAt = Date.now();
+}
+
+/** The files in `files` changed since `since`, which the running code has not loaded. */
+async function changedSince(files: string[], since: number) {
+  const root = fileURLToPath(new URL("..", import.meta.url));
+  const changed: string[] = [];
+  for (const file of files) {
+    const info = await stat(join(root, file)).catch(() => undefined);
+    if (info && info.mtimeMs > since) changed.push(file);
+  }
+  return changed;
+}
+
+/** What is running and whether it is up to date, for the read_status tool. */
+export async function appStatus(restartPending: string | null) {
   return {
-    name: "model-harness-api",
-    configureServer(server) {
-      server.middlewares.use((req, res, next) => void handle(req, res, next));
-      server.httpServer?.on("close", stopLocal);
+    app: {
+      startedAt: new Date(appStartedAt).toISOString(),
+      pagePort: Number(process.env.PORT) || undefined,
+      apiPort: Number(process.env.API_PORT),
+      unloadedChanges: await changedSince(APP_FILES, appStartedAt),
     },
-    configurePreviewServer(server) {
-      server.middlewares.use((req, res, next) => void handle(req, res, next));
-      server.httpServer?.on("close", stopLocal);
+    daemon: {
+      pid: process.pid,
+      startedAt: new Date(daemonStartedAt).toISOString(),
+      unloadedChanges: await changedSince(DAEMON_FILES, daemonStartedAt),
     },
+    piRuns: piRuns().map((r) => ({ chat: r.conversationId, startedAt: new Date(r.startedAt).toISOString() })),
+    llamaServer: local
+      ? { running: local.process.exitCode === null, model: basename(local.model), port: local.port, pid: local.process.pid, contextWindow: local.contextWindow }
+      : { running: false },
+    restartPending,
   };
 }
 
-process.on("exit", stopLocal);
+/** Stops every pi run and llama-server, before the daemon exits. */
+export function stopAll() {
+  stopAllPi();
+  stopLocal();
+}
+
+process.on("exit", stopAll);

@@ -9,10 +9,33 @@ export interface HarnessDefinition {
   name: string;
   /** Which HarnessAdapter runs this definition. */
   kind: string;
+  /** False sends chats straight to the model, without the system prompt, sampling settings or agent. Unset is on. */
+  enabled?: boolean;
+  /** Which tools pi gets, by id. A tool left out gets its default (src/harnesses/tools.ts). */
+  tools?: Record<string, boolean>;
+  /** pi's agent loop settings. A field left out keeps pi's default. */
+  loop?: AgentLoop;
+  /** Which hooks pi runs, by id. A hook left out gets its default (src/harnesses/hooks.ts). */
+  hooks?: Record<string, boolean>;
   systemPrompt: string;
   params: GenerationParams;
   /** Free-form settings owned by the harness kind, such as a command line. */
   options: Record<string, string>;
+}
+
+export interface AgentLoop {
+  /** Most steps pi takes with tools for one message. After that, tool calls are refused so it answers. */
+  maxSteps?: number;
+  /** Summarise older messages when the context is nearly full. pi's default is on. */
+  compaction?: boolean;
+  /** Free context, in tokens, below which compaction starts. pi's default is 16384. */
+  reserveTokens?: number;
+  /** Recent tokens kept word for word when compacting. pi's default is 20000. */
+  keepRecentTokens?: number;
+  /** Retry model requests that fail for a passing reason, such as overload. pi's default is on. */
+  retry?: boolean;
+  /** Most retries. pi's default is 3. */
+  maxRetries?: number;
 }
 
 export interface HarnessContext {

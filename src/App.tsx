@@ -53,6 +53,22 @@ export function App() {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
+  // Crossing the narrow-window breakpoint swaps how the side panes hide, and their
+  // slide transitions would play that swap as a flash. Pause them while resizing.
+  useEffect(() => {
+    let timer: number | undefined;
+    const onResize = () => {
+      document.documentElement.classList.add("is-resizing");
+      window.clearTimeout(timer);
+      timer = window.setTimeout(() => document.documentElement.classList.remove("is-resizing"), 150);
+    };
+    window.addEventListener("resize", onResize);
+    return () => {
+      window.removeEventListener("resize", onResize);
+      window.clearTimeout(timer);
+    };
+  }, []);
+
   const closeOnMobile = () => window.innerWidth <= 860 && setSidebarOpen(false);
 
   return (

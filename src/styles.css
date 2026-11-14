@@ -771,3 +771,6 @@ button:disabled { cursor: default; }
 }
 .folder-new .button { padding: 7px 12px; font-size: 13px; }
 .folder-foot-start { display: flex; align-items: center; gap: 14px; }
+
+/* Set by App while the window is being resized. */
+.is-resizing .sidebar, .is-resizing .harness { transition: none !important; }

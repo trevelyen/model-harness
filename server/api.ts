@@ -115,7 +115,8 @@ async function listGguf(dir: string, depth = 3): Promise<LocalModel[]> {
       found.push(await describe(full, entry.name));
     }
   }
-  return found.sort((a, b) => a.name.localeCompare(b.name));
+  // Biggest first; a download counts at the size it will be when finished.
+  return found.sort((a, b) => (b.total ?? b.size) - (a.total ?? a.size) || a.name.localeCompare(b.name));
 }
 
 interface SystemStats {
@@ -195,6 +196,8 @@ interface LocalServer {
   process: ChildProcess;
   log: string[];
   ready: Promise<void>;
+  /** Tokens per conversation, as llama-server reports it once running. */
+  contextWindow?: number;
 }
 
 let local: LocalServer | null = null;
@@ -225,6 +228,18 @@ async function waitForHealth(server: LocalServer, timeoutMs: number) {
     await new Promise((r) => setTimeout(r, 500));
   }
   throw new Error("llama-server did not become ready in time");
+}
+
+/** The context size llama-server actually settled on, which may differ from the one asked for. */
+async function readContextWindow(port: number): Promise<number | undefined> {
+  try {
+    const res = await fetch(`http://127.0.0.1:${port}/props`);
+    if (!res.ok) return undefined;
+    const props = await res.json();
+    return props.default_generation_settings?.n_ctx ?? props.n_ctx;
+  } catch {
+    return undefined;
+  }
 }
 
 interface EnsureRequest {
@@ -307,7 +322,15 @@ async function handle(req: IncomingMessage, res: ServerResponse, next: () => voi
         if (!options.model) return sendJson(res, 400, { error: "No model given" });
         const { server, loadMs } = await ensureLocal(options);
         const header = await readHeader(server.model, (await stat(server.model)).size).catch(() => undefined);
-        return sendJson(res, 200, { port: server.port, model: basename(server.model), loadMs, reasoning: reasoningSupport(header?.chatTemplate) });
+        server.contextWindow ??= await readContextWindow(server.port);
+        return sendJson(res, 200, {
+          port: server.port,
+          model: basename(server.model),
+          loadMs,
+          reasoning: reasoningSupport(header?.chatTemplate),
+          contextWindow: server.contextWindow,
+          modelContext: header?.trainedContext,
+        });
       }
       case "/api/system":
         return sendJson(res, 200, await systemStats());

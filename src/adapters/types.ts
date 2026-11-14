@@ -51,6 +51,10 @@ export interface Usage {
   loadMs?: number;
   /** Why generation stopped, such as "stop" or "length". */
   finishReason?: string;
+  /** How many tokens the backend can hold in one conversation: the limit it was started with. */
+  contextWindow?: number;
+  /** The most tokens the model itself can handle, whatever limit the backend was given. */
+  modelContext?: number;
 }
 
 export interface ChatRequest {

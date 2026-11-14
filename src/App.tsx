@@ -23,6 +23,24 @@ export function App() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [harnessOpen, setHarnessOpen] = useState(false);
   const busy = !!conversation?.messages.at(-1)?.streaming;
+  // The latest reply's prompt plus answer is what the next message builds on.
+  const lastUsage = conversation?.messages.findLast((m) => m.usage?.inputTokens)?.usage;
+  // A local model's limit is the setting, so moving the slider shows straight away.
+  // Other backends only say what it is in a reply.
+  const localLimit = useStore((s) => {
+    const provider = s.providers.find((p) => p.id === s.selection?.providerId);
+    return provider?.adapter === "llamacpp" ? Number(provider.settings.contextSize) || undefined : undefined;
+  });
+  const limit = localLimit ?? lastUsage?.contextWindow;
+  const modelMax = conversation?.messages.findLast((m) => m.usage?.modelContext)?.usage?.modelContext;
+  const barScale = useStore((s) => s.contextBar);
+  const context = limit
+    ? {
+        used: lastUsage?.inputTokens ? lastUsage.inputTokens + (lastUsage.outputTokens ?? 0) : 0,
+        limit,
+        max: barScale === "limit" ? limit : Math.max(limit, modelMax ?? 0),
+      }
+    : undefined;
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -63,6 +81,7 @@ export function App() {
           busy={busy}
           onSend={(t) => void send(t)}
           onStop={() => conversation && stop(conversation.id)}
+          context={context}
           reasoning={reasoningSupport && { support: reasoningSupport, choice: reasoningChoice, onChange: (next) => setReasoning(() => next) }}
           hint={hasModel ? (harnessName && harnessName !== "Default" ? `Harness: ${harnessName}` : undefined) : "Choose a model to start chatting."}
         />

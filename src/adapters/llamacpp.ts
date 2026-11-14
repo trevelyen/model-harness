@@ -76,8 +76,8 @@ export const llamaCppAdapter: ModelAdapter = {
       body: JSON.stringify({ ...settings, model: req.model }),
     });
     if (!res.ok) throw new Error(await errorText(res));
-    const { port, loadMs, reasoning } = await res.json();
-    if (loadMs !== undefined) yield { type: "usage", loadMs };
+    const { port, loadMs, reasoning, contextWindow, modelContext } = await res.json();
+    yield { type: "usage", loadMs, contextWindow, modelContext };
     yield* openAIChat(`http://127.0.0.1:${port}/v1`, {}, req, reasoningFields(reasoning, req.params));
   },
 };

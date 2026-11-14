@@ -57,6 +57,8 @@ export interface GgufHeader {
   total: number;
   /** The Jinja chat template, which says how the model formats a chat. */
   chatTemplate?: string;
+  /** The most tokens the model was trained to handle in one conversation. */
+  trainedContext?: number;
 }
 
 function parse(buf: Buffer): GgufHeader {
@@ -69,11 +71,14 @@ function parse(buf: Buffer): GgufHeader {
   const kvCount = count();
   let alignment = 32;
   let chatTemplate: string | undefined;
+  let trainedContext: number | undefined;
   for (let i = 0; i < kvCount; i++) {
     const key = r.string();
     const type = r.u32();
     if (key === "general.alignment" && type === 4) alignment = r.u32();
     else if (key === "tokenizer.chat_template" && type === 8) chatTemplate = r.string();
+    else if (key.endsWith(".context_length") && type === 4) trainedContext = r.u32();
+    else if (key.endsWith(".context_length") && type === 10) trainedContext = r.u64();
     else skipValue(r, type);
   }
   let end = 0;
@@ -89,7 +94,7 @@ function parse(buf: Buffer): GgufHeader {
     end = Math.max(end, offset + (elements / size[0]) * size[1]);
   }
   const dataStart = Math.ceil(r.pos / alignment) * alignment;
-  return { total: dataStart + end, chatTemplate };
+  return { total: dataStart + end, chatTemplate, trainedContext };
 }
 
 const cache = new Map<string, GgufHeader>();

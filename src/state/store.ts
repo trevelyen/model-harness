@@ -28,6 +28,13 @@ export interface Message {
   finishedAt?: number;
 }
 
+/** A system prompt saved by name, to load into any harness. */
+export interface SavedPrompt {
+  id: string;
+  name: string;
+  text: string;
+}
+
 /** A chat's thinking settings. Undefined thinking means the model's default. */
 export interface ReasoningChoice {
   thinking?: boolean;
@@ -60,6 +67,9 @@ export interface State {
   harnessId: string;
   /** Thinking settings for new chats: whatever was used last. */
   reasoning: ReasoningChoice;
+  /** What the context bar's full width stands for: the most the model can handle, or your limit. */
+  contextBar: "model" | "limit";
+  prompts: SavedPrompt[];
 }
 
 // Chats and settings live in the repo's data/ folder, through the dev server.
@@ -85,6 +95,8 @@ const seed: State = {
   selection: null,
   harnessId: defaultHarness.id,
   reasoning: { effort: "high" },
+  contextBar: "model",
+  prompts: [],
 };
 
 /** Fixes data saved by earlier versions. */
@@ -145,8 +157,8 @@ let savedSettingsJson = "";
 const savedChats = new Map<string, Conversation>();
 
 function settingsJson(s: State) {
-  const { providers, harnesses, selection, harnessId, activeId, reasoning } = s;
-  return JSON.stringify({ providers: providers.map(withoutSecrets), harnesses, selection, harnessId, activeId, reasoning });
+  const { providers, harnesses, selection, harnessId, activeId, reasoning, contextBar, prompts } = s;
+  return JSON.stringify({ providers: providers.map(withoutSecrets), harnesses, selection, harnessId, activeId, reasoning, contextBar, prompts });
 }
 
 async function put(path: string, body: string) {

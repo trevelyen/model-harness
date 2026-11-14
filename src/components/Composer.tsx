@@ -51,12 +51,34 @@ function ReasoningControls({
   );
 }
 
+/**
+ * The whole bar is what the model can handle. The lighter part is the limit
+ * the backend was started with, and the solid part is what the chat has used.
+ */
+function ContextBar({ used, limit, max }: { used: number; limit: number; max: number }) {
+  const share = (tokens: number) => `${Math.min(1, tokens / max) * 100}%`;
+  const percent = Math.round(Math.min(1, used / limit) * 100);
+  const title =
+    `${used.toLocaleString()} of ${limit.toLocaleString()} tokens used (${percent}%).` +
+    (max > limit ? ` The model can handle up to ${max.toLocaleString()}; raise Context size in Settings to use more.` : "");
+  return (
+    <span className={`context-bar ${used / limit >= 0.8 ? "is-full" : ""}`} title={title} role="meter" aria-label="Context used" aria-valuenow={percent} aria-valuemin={0} aria-valuemax={100}>
+      <span className="context-bar-track">
+        {limit < max && <span className="context-bar-limit" style={{ width: share(limit) }} />}
+        {/* At least a sliver, so a short chat still shows it has started. */}
+        {used > 0 && <span className="context-bar-used" style={{ width: `max(3px, ${share(used)})` }} />}
+      </span>
+    </span>
+  );
+}
+
 export function Composer({
   busy,
   onSend,
   onStop,
   hint,
   reasoning,
+  context,
 }: {
   busy: boolean;
   onSend: (text: string) => void;
@@ -64,6 +86,8 @@ export function Composer({
   hint?: string;
   /** Shown only when the selected model can think. */
   reasoning?: { support: ReasoningSupport; choice: ReasoningChoice; onChange: (next: ReasoningChoice) => void };
+  /** Tokens the chat takes up, the backend's limit, and the most the model can handle. */
+  context?: { used: number; limit: number; max: number };
 }) {
   const [text, setText] = useState("");
   const ref = useRef<HTMLTextAreaElement>(null);
@@ -101,17 +125,19 @@ export function Composer({
           }}
         />
         <div className="composer-bar">
-          {reasoning && <ReasoningControls {...reasoning} />}
-          <div className="composer-bar-spacer" />
-          {busy ? (
-            <button type="button" className="send is-stop" aria-label="Stop" onClick={onStop}>
-              <StopIcon size={16} />
-            </button>
-          ) : (
-            <button type="submit" className="send" aria-label="Send" disabled={!text.trim()}>
-              <ArrowUpIcon size={18} />
-            </button>
-          )}
+          <div className="composer-bar-start">{reasoning && <ReasoningControls {...reasoning} />}</div>
+          {context ? <ContextBar {...context} /> : <span />}
+          <div className="composer-bar-end">
+            {busy ? (
+              <button type="button" className="send is-stop" aria-label="Stop" onClick={onStop}>
+                <StopIcon size={16} />
+              </button>
+            ) : (
+              <button type="submit" className="send" aria-label="Send" disabled={!text.trim()}>
+                <ArrowUpIcon size={18} />
+              </button>
+            )}
+          </div>
         </div>
       </form>
       {hint && <p className="composer-hint">{hint}</p>}

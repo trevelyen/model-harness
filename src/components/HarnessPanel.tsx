@@ -1,5 +1,6 @@
 import { getHarnessAdapter, harnessAdapters } from "../harnesses/registry";
 import type { HarnessDefinition } from "../harnesses/types";
+import type { GenerationParams } from "../adapters/types";
 import { setState, uid, useStore } from "../state/store";
 import { HookIcon, LoopIcon, PlusIcon, ToolIcon, TrashIcon, XIcon } from "./Icons";
 
@@ -8,6 +9,34 @@ const PLANNED = [
   { icon: LoopIcon, title: "Agent loop", text: "Let it plan, act and check its work over several steps." },
   { icon: HookIcon, title: "Hooks", text: "Run your own code before and after each turn." },
 ];
+
+interface SliderProps {
+  label: string;
+  hint: string;
+  min: number;
+  max: number;
+  step: number;
+  value: number;
+  /** The value that means "not set", sent to the model as nothing. */
+  off?: number;
+  onChange: (value: number | undefined) => void;
+}
+
+function Slider({ label, hint, min, max, step, value, off, onChange }: SliderProps) {
+  return (
+    <div className="field">
+      <label>{label} <span className="value">{value === off ? "Off" : value.toFixed(step < 1 ? 2 : 0)}</span></label>
+      <input
+        type="range" min={min} max={max} step={step} value={value}
+        onChange={(e) => {
+          const next = Number(e.target.value);
+          onChange(next === off ? undefined : next);
+        }}
+      />
+      <small>{hint}</small>
+    </div>
+  );
+}
 
 function useActiveHarness() {
   const harnesses = useStore((s) => s.harnesses);
@@ -30,6 +59,9 @@ function update(id: string, patch: Partial<HarnessDefinition>) {
 export function HarnessPanel({ open, onClose }: { open: boolean; onClose: () => void }) {
   const { harnesses, current } = useActiveHarness();
   const kind = getHarnessAdapter(current.kind);
+  const params = current.params;
+  const setParam = (key: keyof GenerationParams, value: number | undefined) =>
+    update(current.id, { params: { ...params, [key]: value } });
 
   const create = () => {
     const h: HarnessDefinition = { id: uid(), name: `Harness ${harnesses.length + 1}`, kind: "direct", systemPrompt: "", params: { temperature: 0.7 }, options: {} };
@@ -108,23 +140,38 @@ export function HarnessPanel({ open, onClose }: { open: boolean; onClose: () => 
           />
         </div>
 
-        <div className="field-row">
-          <div className="field">
-            <label>Temperature <span className="value">{(current.params.temperature ?? 0.7).toFixed(2)}</span></label>
-            <input
-              type="range" min={0} max={2} step={0.05}
-              value={current.params.temperature ?? 0.7}
-              onChange={(e) => update(current.id, { params: { ...current.params, temperature: Number(e.target.value) } })}
-            />
-          </div>
-          <div className="field">
-            <label>Max tokens</label>
-            <input
-              type="number" min={1} placeholder="Model default"
-              value={current.params.maxTokens ?? ""}
-              onChange={(e) => update(current.id, { params: { ...current.params, maxTokens: e.target.value ? Number(e.target.value) : undefined } })}
-            />
-          </div>
+        <Slider
+          label="Temperature" min={0} max={2} step={0.05}
+          value={params.temperature ?? 0.7}
+          onChange={(v) => setParam("temperature", v)}
+          hint="Lower = safe, repeatable. Higher = varied, may ramble."
+        />
+        <Slider
+          label="Top-p" min={0.05} max={1} step={0.05} off={1}
+          value={params.topP ?? 1}
+          onChange={(v) => setParam("topP", v)}
+          hint="Lower = only common words. Higher = rare words allowed. 1 = off."
+        />
+        <Slider
+          label="Top-k" min={0} max={100} step={1} off={0}
+          value={params.topK ?? 0}
+          onChange={(v) => setParam("topK", v)}
+          hint="Lower = fewer word options. Higher = more options. 0 = off."
+        />
+        <Slider
+          label="Min-p" min={0} max={0.5} step={0.01} off={0}
+          value={params.minP ?? 0}
+          onChange={(v) => setParam("minP", v)}
+          hint="Lower = rare words allowed. Higher = only strong picks. 0 = off."
+        />
+        <div className="field">
+          <label>Max tokens</label>
+          <input
+            type="number" min={1} placeholder="Model default"
+            value={params.maxTokens ?? ""}
+            onChange={(e) => setParam("maxTokens", e.target.value ? Number(e.target.value) : undefined)}
+          />
+          <small>Lower = replies cut off sooner. Higher = longer replies. Empty = model default.</small>
         </div>
 
         <div className="planned">

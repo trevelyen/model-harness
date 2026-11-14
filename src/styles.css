@@ -556,6 +556,8 @@ button:disabled { cursor: default; }
 .dialog-head { display: flex; align-items: center; justify-content: space-between; padding: 16px 16px 16px 22px; border-bottom: 1px solid var(--border); }
 .dialog-head h2 { margin: 0; font-size: 16px; letter-spacing: -0.01em; }
 .dialog-body { flex: 1; min-height: 0; display: grid; grid-template-columns: 220px 1fr; }
+.dialog-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 12px 16px 12px 22px; border-top: 1px solid var(--border); }
+.dialog-foot .test-result { flex: 1 1 260px; }
 .provider-list { padding: 10px; border-right: 1px solid var(--border); overflow-y: auto; display: grid; align-content: start; gap: 2px; background: var(--bg-soft); }
 .provider-tab {
   display: flex; align-items: center; gap: 9px; padding: 8px 10px; border-radius: 9px;

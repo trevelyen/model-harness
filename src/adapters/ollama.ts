@@ -39,7 +39,13 @@ export const ollamaAdapter: ModelAdapter = {
         model: req.model,
         messages: req.messages,
         stream: true,
-        options: { temperature: req.params.temperature, top_p: req.params.topP, num_predict: req.params.maxTokens },
+        options: {
+          temperature: req.params.temperature,
+          top_p: req.params.topP,
+          top_k: req.params.topK,
+          min_p: req.params.minP,
+          num_predict: req.params.maxTokens,
+        },
       }),
     });
     for await (const chunk of ndjson<OllamaChunk>(res.body!)) {

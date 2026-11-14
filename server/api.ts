@@ -5,7 +5,7 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import { execFile, spawn, type ChildProcess } from "node:child_process";
 import { readFile, readdir, stat } from "node:fs/promises";
 import { createServer } from "node:net";
-import { freemem, homedir, totalmem } from "node:os";
+import { freemem, homedir, totalmem, userInfo } from "node:os";
 import { join, basename, resolve } from "node:path";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
@@ -166,6 +166,18 @@ function systemStats() {
   return lastStats.value;
 }
 
+// Writing to drop_caches needs root, so this only works with a passwordless sudo rule for it.
+const DROP_CACHES_RULE = `${userInfo().username} ALL=(root) NOPASSWD: /usr/bin/tee /proc/sys/vm/drop_caches`;
+
+function dropCaches(): Promise<boolean> {
+  return new Promise((resolve) => {
+    execFile("sync", () => {
+      const child = execFile("sudo", ["-n", "tee", "/proc/sys/vm/drop_caches"], { timeout: 5000 }, (error) => resolve(!error));
+      child.stdin?.end("3\n");
+    });
+  });
+}
+
 function freePort(): Promise<number> {
   return new Promise((resolve, reject) => {
     const server = createServer();
@@ -304,6 +316,11 @@ async function handle(req: IncomingMessage, res: ServerResponse, next: () => voi
       case "/api/local/stop":
         stopLocal();
         return sendJson(res, 200, { running: false });
+      case "/api/system/free": {
+        stopLocal();
+        const cachesDropped = await dropCaches();
+        return sendJson(res, 200, cachesDropped ? { cachesDropped } : { cachesDropped, sudoRule: DROP_CACHES_RULE });
+      }
       default:
         return sendJson(res, 404, { error: "Not found" });
     }

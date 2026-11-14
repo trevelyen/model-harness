@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { getModelAdapter, modelAdapters } from "../adapters/registry";
+import { errorText } from "../lib/http";
 import { setState, uid, useStore, type Provider } from "../state/store";
 import { CheckIcon, PlusIcon, ServerIcon, TrashIcon, XIcon, AlertIcon } from "./Icons";
 
@@ -64,6 +65,44 @@ function ProviderEditor({ provider }: { provider: Provider }) {
   );
 }
 
+type MemoryResult = { state: "idle" } | { state: "running" } | { state: "ok"; message: string } | { state: "error"; message: string; rule?: string };
+
+/** Unloads the local model, or also drops the OS caches to free RAM. */
+function MemoryActions() {
+  const [result, setResult] = useState<MemoryResult>({ state: "idle" });
+
+  const run = async (path: string) => {
+    setResult({ state: "running" });
+    try {
+      const res = await fetch(path, { method: "POST" });
+      if (!res.ok) throw new Error(await errorText(res));
+      const json = await res.json();
+      if (json.sudoRule) {
+        setResult({ state: "error", message: "Model unloaded. Dropping OS caches needs this sudo rule, added with sudo visudo:", rule: json.sudoRule });
+      } else {
+        setResult({ state: "ok", message: json.cachesDropped ? "Model unloaded and OS caches dropped." : "Model unloaded." });
+      }
+    } catch (e) {
+      setResult({ state: "error", message: (e as Error).message });
+    }
+  };
+
+  const running = result.state === "running";
+  return (
+    <>
+      <button className="button" onClick={() => run("/api/local/stop")} disabled={running}>Unload model</button>
+      <button className="button" onClick={() => run("/api/system/free")} disabled={running}>Free up RAM</button>
+      {result.state === "ok" && <p className="test-result is-ok"><CheckIcon size={15} />{result.message}</p>}
+      {result.state === "error" && (
+        <p className="test-result is-error">
+          <AlertIcon size={15} />
+          <span>{result.message}{result.rule && <><br /><code>{result.rule}</code></>}</span>
+        </p>
+      )}
+    </>
+  );
+}
+
 export function SettingsDialog({ onClose }: { onClose: () => void }) {
   const providers = useStore((s) => s.providers);
   const [activeId, setActiveId] = useState(providers[0]?.id);
@@ -115,6 +154,9 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
             )}
           </div>
         </div>
+        <footer className="dialog-foot">
+          <MemoryActions />
+        </footer>
       </div>
     </div>
   );

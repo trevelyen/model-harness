@@ -42,6 +42,7 @@ export const anthropicAdapter: ModelAdapter = {
         max_tokens: answerTokens + budget,
         temperature: budget ? undefined : req.params.temperature,
         top_p: budget ? undefined : req.params.topP,
+        top_k: budget ? undefined : req.params.topK,
         thinking: budget ? { type: "enabled", budget_tokens: budget } : undefined,
         stream: true,
       }),

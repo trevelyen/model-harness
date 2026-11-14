@@ -13,6 +13,8 @@ export type Effort = "low" | "medium" | "high";
 export interface GenerationParams {
   temperature?: number;
   topP?: number;
+  topK?: number;
+  minP?: number;
   maxTokens?: number;
   /** Switch thinking on or off. Undefined leaves the model's default. */
   thinking?: boolean;

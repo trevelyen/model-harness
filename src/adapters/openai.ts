@@ -25,6 +25,9 @@ export async function* openAIChat(
       stream_options: { include_usage: true },
       temperature: req.params.temperature,
       top_p: req.params.topP,
+      // Not part of OpenAI's API, but llama.cpp, vLLM and others take them. Left out when unset.
+      top_k: req.params.topK,
+      min_p: req.params.minP,
       max_tokens: req.params.maxTokens,
       ...extra,
     }),

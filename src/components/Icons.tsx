@@ -44,3 +44,7 @@ export const MicIcon = make(<><rect x="9" y="3" width="6" height="11" rx="3" /><
 export const MicOffIcon = make(<><path d="M15 9.5V6a3 3 0 0 0-5.7-1.3M9 9v2a3 3 0 0 0 4.6 2.5" /><path d="M5 11a7 7 0 0 0 11.5 5.4M19 11a7 7 0 0 1-.6 2.8M12 18v3M4 4l16 16" /></>);
 export const ActivityIcon = make(<path d="M3 12h4l3-8 4 16 3-8h4" />);
 export const DiffIcon = make(<><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z" /><path d="M14 2v4a1 1 0 0 0 1 1h5" /><path d="M9 10h6M12 7v6M9 17h6" /></>);
+export const PlayIcon = make(<path d="M8 5.5v13a1 1 0 0 0 1.5.86l10.5-6.5a1 1 0 0 0 0-1.72L9.5 4.64A1 1 0 0 0 8 5.5Z" fill="currentColor" stroke="none" />);
+export const PauseIcon = make(<><rect x="6.5" y="5" width="4" height="14" rx="1.2" fill="currentColor" stroke="none" /><rect x="13.5" y="5" width="4" height="14" rx="1.2" fill="currentColor" stroke="none" /></>);
+export const DownloadIcon = make(<path d="M12 4v11M7 10l5 5 5-5M5 20h14" />);
+export const ScissorsIcon = make(<><circle cx="6" cy="7" r="2.5" /><circle cx="6" cy="17" r="2.5" /><path d="M8 8.5 20 18M8 15.5 20 6" /></>);

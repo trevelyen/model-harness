@@ -12,6 +12,7 @@ import { SystemMeters } from "./components/SystemMeters";
 import { RestartNotice } from "./components/RestartNotice";
 import { ChangesPane } from "./components/ChangesPane";
 import { VoiceChat } from "./components/VoiceChat";
+import { SoundChat } from "./components/SoundMock";
 import { StopVoiceDialog } from "./components/StopVoiceDialog";
 import { stopVoiceServer, voiceServerRunning } from "./voice/client";
 
@@ -143,6 +144,8 @@ export function App() {
           <div className="chat-column">
             {conversation?.kind === "voice" ? (
               <VoiceChat key={conversation.id} conversation={conversation} />
+            ) : conversation?.kind === "sound" ? (
+              <SoundChat key={conversation.id} />
             ) : (
               <>
                 <Thread conversation={conversation} />

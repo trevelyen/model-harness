@@ -4,6 +4,11 @@ import { PlusIcon, SettingsIcon, TrashIcon } from "./Icons";
 import { Logo } from "./Logo";
 
 const DAY = 86_400_000;
+// Chats made after the page loaded open into the list; the ones it loaded with are just there.
+const LOADED_AT = Date.now();
+
+/** Whether a chat was just made, for its row's opening animation. Only for a second, the animation's length and then some. */
+const isNew = (c: Conversation) => c.createdAt > LOADED_AT && Date.now() - c.createdAt < 1000;
 
 /** Top-level chats by how recently they changed. Staff agents go under their parent instead. */
 function group(conversations: Conversation[]) {
@@ -86,12 +91,11 @@ export function Sidebar({ open, onSettings, onNavigate }: { open: boolean; onSet
         </div>
       </div>
       <nav className="history">
-        {conversations.length === 0 && <p className="history-empty">Your chats will show up here.</p>}
         {group(conversations).map((g) => (
           <section key={g.label}>
             <h3>{g.label}</h3>
             {g.items.map((c) => (
-              <div key={c.id}>
+              <div key={c.id} className={isNew(c) ? "history-new" : undefined}>
                 <HistoryItem conversation={c} active={c.id === activeId} onNavigate={onNavigate} />
                 {conversations
                   .filter((s) => s.parentId === c.id)

@@ -1,0 +1,17 @@
+# The environment Chatterbox runs in. It pins its own PyTorch, transformers
+# and numpy, which the app's environment cannot share, so `worker.py` runs
+# here as a process of its own. uv builds this at the service's first start.
+[project]
+name = "speech-testing-chatterbox"
+version = "0.1.0"
+description = "Chatterbox Turbo, as a worker process of speech-testing"
+requires-python = ">=3.11,<3.12"
+dependencies = [
+    "chatterbox-tts==0.1.7",
+    # Its watermarker imports pkg_resources, which newer setuptools no longer ships.
+    # Without it Chatterbox fails to load: "'NoneType' object is not callable".
+    "setuptools<81",
+]
+
+[tool.uv]
+package = false

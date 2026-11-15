@@ -3,21 +3,11 @@
 // If the daemon stops, it is started again, so Restart in Settings and a crash
 // both bring it back. The daemon can ask for Vite alone to be restarted.
 import { spawn, type ChildProcess } from "node:child_process";
-import { createServer } from "node:net";
 import { fileURLToPath } from "node:url";
+import { freePort } from "./net.ts";
 
 // The exit code server/daemon.ts uses for Restart.
 const RESTART_DAEMON = 75;
-
-function freePort(): Promise<number> {
-  return new Promise((resolve, reject) => {
-    const server = createServer();
-    server.listen(0, "127.0.0.1", () => {
-      const address = server.address();
-      server.close(() => (typeof address === "object" && address ? resolve(address.port) : reject(new Error("No port"))));
-    });
-  });
-}
 
 const apiPort = Number(process.env.API_PORT) || (await freePort());
 const env: NodeJS.ProcessEnv = { ...process.env, API_PORT: String(apiPort), APP_STARTED_AT: String(Date.now()) };

@@ -6,7 +6,12 @@ import type { GenerationParams } from "../adapters/types";
 import { setState, uid, useStore, type SavedPrompt } from "../state/store";
 import { useEffect, useRef, useState } from "react";
 import { FolderPicker } from "./FolderPicker";
+import { Range } from "./Range";
+import { Switch } from "./Switch";
+import { Segmented } from "./Segmented";
+import { Field } from "./Field";
 import { CheckIcon, ChevronDownIcon, FolderIcon, PlusIcon, SaveIcon, TrashIcon, XIcon } from "./Icons";
+import { useDismiss } from "../lib/useDismiss";
 
 const TABS = ["Settings", "Tools", "Agent loop", "Hooks"] as const;
 type Tab = (typeof TABS)[number];
@@ -25,17 +30,9 @@ interface SliderProps {
 
 function Slider({ label, hint, min, max, step, value, off, onChange }: SliderProps) {
   return (
-    <div className="field">
-      <label>{label} <span className="value">{value === off ? "Off" : value.toFixed(step < 1 ? 2 : 0)}</span></label>
-      <input
-        type="range" min={min} max={max} step={step} value={value}
-        onChange={(e) => {
-          const next = Number(e.target.value);
-          onChange(next === off ? undefined : next);
-        }}
-      />
-      <small>{hint}</small>
-    </div>
+    <Field label={label} value={value === off ? "Off" : value.toFixed(step < 1 ? 2 : 0)} hint={hint}>
+      <Range min={min} max={max} step={step} value={value} label={label} onChange={(next) => onChange(next === off ? undefined : next)} />
+    </Field>
   );
 }
 
@@ -63,11 +60,9 @@ function TokenSlider({ label, hint, steps, value, offLabel, onChange }: {
       ? 0
       : stops.reduce<number>((best, n, i) => (n !== undefined && Math.abs(n - value) < Math.abs((stops[best] ?? Infinity) - value) ? i : best), 0);
   return (
-    <div className="field">
-      <label>{label} <span className="value">{value === undefined ? offLabel : tokens(value)}</span></label>
-      <input type="range" min={0} max={stops.length - 1} step={1} value={index} onChange={(e) => onChange(stops[Number(e.target.value)])} />
-      <small>{hint}</small>
-    </div>
+    <Field label={label} value={value === undefined ? offLabel : tokens(value)} hint={hint}>
+      <Range min={0} max={stops.length - 1} step={1} value={index} label={label} onChange={(i) => onChange(stops[i])} />
+    </Field>
   );
 }
 
@@ -99,17 +94,12 @@ function ContextSlider() {
         onChange={(n) => setSetting("contextSize", String(n))}
         hint="Most the whole chat can hold. Higher = longer chats, more VRAM. The model reloads on your next message."
       />
-      <div className="field">
-        <label>
-          Half-size cache
-          <button
-            type="button" role="switch" aria-checked={halfCache} aria-label="Half-size cache"
-            className={`switch ${halfCache ? "is-on" : ""}`}
-            onClick={() => setSetting("kvCache", halfCache ? "" : "q8_0")}
-          />
-        </label>
-        <small>Stores the context at 8-bit, so the same VRAM holds about twice as much. Quality barely changes. The model reloads on your next message.</small>
-      </div>
+      <Toggle
+        label="Half-size cache"
+        on={halfCache}
+        onChange={(on) => setSetting("kvCache", on ? "q8_0" : "")}
+        hint="Stores the context at 8-bit, so the same VRAM holds about twice as much. Quality barely changes. The model reloads on your next message."
+      />
     </>
   );
 }
@@ -128,17 +118,7 @@ function PromptName({ prompts, name, onName, onPick, onEnter }: {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    if (!open) return;
-    const close = (e: MouseEvent) => !ref.current?.contains(e.target as Node) && setOpen(false);
-    const escape = (e: KeyboardEvent) => e.key === "Escape" && setOpen(false);
-    document.addEventListener("mousedown", close);
-    document.addEventListener("keydown", escape);
-    return () => {
-      document.removeEventListener("mousedown", close);
-      document.removeEventListener("keydown", escape);
-    };
-  }, [open]);
+  useDismiss(ref, open, () => setOpen(false));
 
   return (
     <div className={`prompt-menu ${open ? "is-open" : ""}`} ref={ref}>
@@ -209,8 +189,7 @@ function SystemPrompt({ value, onChange }: { value: string; onChange: (text: str
   const remove = () => named && setState((s) => ({ ...s, prompts: s.prompts.filter((p) => p.id !== named.id) }));
 
   return (
-    <div className="field">
-      <label>System prompt</label>
+    <Field label="System prompt">
       <div className="prompt-picker">
         <PromptName
           prompts={prompts}
@@ -241,7 +220,7 @@ function SystemPrompt({ value, onChange }: { value: string; onChange: (text: str
         </button>
       </div>
       <textarea rows={5} placeholder="You are a helpful assistant." value={value} onChange={(e) => onChange(e.target.value)} />
-    </div>
+    </Field>
   );
 }
 
@@ -302,11 +281,7 @@ function ToolCard({ tool, on, onToggle }: { tool: Pick<HarnessTool, "id" | "name
         <code>{tool.id}</code>
         <span>{tool.description}</span>
       </div>
-      <button
-        type="button" role="switch" aria-checked={on} aria-label={tool.name}
-        className={`switch ${on ? "is-on" : ""}`}
-        onClick={() => onToggle(!on)}
-      />
+      <Switch on={on} label={tool.name} onChange={onToggle} />
     </div>
   );
 }
@@ -315,16 +290,8 @@ const RESERVE_STEPS = [4096, 8192, 16384, 24576, 32768, 49152, 65536];
 const KEEP_STEPS = [4096, 8192, 12288, 16384, 20000, 32768, 49152, 65536];
 
 /** A labelled switch, like Half-size cache. */
-function Toggle({ label, hint, on, onChange }: { label: string; hint: string; on: boolean; onChange: (on: boolean) => void }) {
-  return (
-    <div className="field">
-      <label>
-        {label}
-        <button type="button" role="switch" aria-checked={on} aria-label={label} className={`switch ${on ? "is-on" : ""}`} onClick={() => onChange(!on)} />
-      </label>
-      <small>{hint}</small>
-    </div>
-  );
+function Toggle({ label, hint, on, onChange }: { label: string; hint?: string; on: boolean; onChange: (on: boolean) => void }) {
+  return <Field label={label} control={<Switch on={on} label={label} onChange={onChange} />} hint={hint} />;
 }
 
 /** pi's loop settings: how long it may run, and how it handles a full context and failed requests. */
@@ -412,11 +379,12 @@ export function HarnessPanel({ open, onClose }: { open: boolean; onClose: () => 
           return (
             <div key={h.id} className={`chip has-switch ${h.id === current.id ? "is-active" : ""} ${on ? "" : "is-off"}`}>
               <ChipName harness={h} active={h.id === current.id} />
-              <button
-                type="button" role="switch" aria-checked={on} aria-label={`${h.name} on`}
+              <Switch
+                small
+                on={on}
+                label={`${h.name} on`}
                 title={on ? "On. Chats use this harness." : "Off. Chats go straight to the model."}
-                className={`switch is-small ${on ? "is-on" : ""}`}
-                onClick={() => update(h.id, { enabled: !on })}
+                onChange={(enabled) => update(h.id, { enabled })}
               />
             </div>
           );
@@ -424,29 +392,18 @@ export function HarnessPanel({ open, onClose }: { open: boolean; onClose: () => 
         <button className="chip-add" onClick={create} aria-label="New harness"><PlusIcon size={14} /></button>
       </div>
 
-      <div className="segmented harness-tabs" role="tablist" aria-label="Harness sections">
-        {TABS.map((t) => (
-          <button key={t} role="tab" aria-selected={t === tab} className={t === tab ? "is-active" : ""} onClick={() => setTab(t)}>{t}</button>
-        ))}
-      </div>
+      <Segmented tabs className="harness-tabs" label="Harness sections" options={TABS.map((t) => ({ value: t, label: t }))} value={tab} onChange={setTab} />
 
       <div className="harness-scroll">
         {tab === "Settings" && (<>
-        <div className="field">
-          <label>
-            Use pi
-            <button
-              type="button" role="switch" aria-checked={kind.id === "pi"} aria-label="Use pi"
-              className={`switch ${kind.id === "pi" ? "is-on" : ""}`}
-              onClick={() => update(current.id, { kind: kind.id === "pi" ? "direct" : "pi" })}
-            />
-          </label>
-        </div>
+        <Toggle label="Use pi" on={kind.id === "pi"} onChange={(on) => update(current.id, { kind: on ? "pi" : "direct" })} />
 
         {kind.id === "pi" && (
           <>
-            <div className="field">
-              <label>Working folder</label>
+            <Field
+              label="Working folder"
+              hint="pi reads, edits and runs commands in this folder without asking first. Pick one you're happy for it to change."
+            >
               <div className="folder-input">
                 <input
                   placeholder="~/code/my-project"
@@ -467,30 +424,25 @@ export function HarnessPanel({ open, onClose }: { open: boolean; onClose: () => 
                   }}
                 />
               )}
-              <small>pi reads, edits and runs commands in this folder without asking first. Pick one you're happy for it to change.</small>
-            </div>
-            <div className="field">
-              <label>pi command</label>
+            </Field>
+            <Field label="pi command" hint="Empty runs pi from your PATH. The system prompt below replaces pi's own coding prompt; leave it empty to keep pi's.">
               <input
                 placeholder="pi"
                 value={current.options.command ?? ""}
                 onChange={(e) => update(current.id, { options: { ...current.options, command: e.target.value } })}
               />
-              <small>Empty runs pi from your PATH. The system prompt below replaces pi's own coding prompt; leave it empty to keep pi's.</small>
-            </div>
+            </Field>
           </>
         )}
 
         {kind.status === "stub" && (
-          <div className="field">
-            <label>Command</label>
+          <Field label="Command" hint="Saved with the harness. Running it is not wired up yet.">
             <input
               placeholder="my-agent --stdio"
               value={current.options.command ?? ""}
               onChange={(e) => update(current.id, { options: { ...current.options, command: e.target.value } })}
             />
-            <small>Saved with the harness. Running it is not wired up yet.</small>
-          </div>
+          </Field>
         )}
 
         <SystemPrompt value={current.systemPrompt} onChange={(text) => update(current.id, { systemPrompt: text })} />

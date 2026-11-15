@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useDismiss } from "../lib/useDismiss";
 import type { Effort, ReasoningSupport } from "../adapters/types";
 import type { ReasoningChoice } from "../state/store";
 import { ArrowUpIcon, BrainIcon, SettingsIcon, StopIcon } from "./Icons";
@@ -80,20 +81,64 @@ function ContextRing({ used, limit, max }: { used: number; limit: number; max: n
 export function useSheet() {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
+  useDismiss(ref, open, () => setOpen(false));
+  return { open, setOpen, ref };
+}
+
+/** The sheet that slides up from behind a composer. Hidden from the keyboard and screen readers while closed. */
+export function ComposerSheet({ open, children }: { open: boolean; children: ReactNode }) {
+  return (
+    <div className={`composer-sheet ${open ? "is-open" : ""}`} aria-hidden={!open} inert={!open}>
+      <div className="composer-sheet-inner">{children}</div>
+    </div>
+  );
+}
+
+/** The cog that opens a composer's sheet. */
+export function SheetButton({ open, onClick, label, title }: { open: boolean; onClick: () => void; label: string; title?: string }) {
+  return (
+    <button type="button" className={`icon-button ${open ? "is-active" : ""}`} aria-label={label} aria-expanded={open} title={title} onClick={onClick}>
+      <SettingsIcon size={16} />
+    </button>
+  );
+}
+
+/** A composer's text box. It grows with its text up to 240px, and Enter sends while Shift+Enter starts a new line. */
+export function MessageBox({ value, onChange, onSubmit, autoFocus }: {
+  value: string;
+  onChange: (value: string) => void;
+  onSubmit: () => void;
+  autoFocus?: boolean;
+}) {
+  const ref = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
-    if (!open) return;
-    const close = (e: MouseEvent) => !ref.current?.contains(e.target as Node) && setOpen(false);
-    const escape = (e: KeyboardEvent) => e.key === "Escape" && setOpen(false);
-    document.addEventListener("mousedown", close);
-    document.addEventListener("keydown", escape);
-    return () => {
-      document.removeEventListener("mousedown", close);
-      document.removeEventListener("keydown", escape);
-    };
-  }, [open]);
+    const el = ref.current;
+    if (!el) return;
+    el.style.height = "0px";
+    el.style.height = `${Math.min(el.scrollHeight, 240)}px`;
+  }, [value]);
 
-  return { open, setOpen, ref };
+  useEffect(() => {
+    if (autoFocus) ref.current?.focus();
+    // On mount only, as the autoFocus attribute would.
+  }, []);
+
+  return (
+    <textarea
+      ref={ref}
+      rows={1}
+      value={value}
+      placeholder="Message"
+      onChange={(e) => onChange(e.target.value)}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
+          e.preventDefault();
+          onSubmit();
+        }
+      }}
+    />
+  );
 }
 
 export function Composer({
@@ -117,17 +162,7 @@ export function Composer({
   settings?: ReactNode;
 }) {
   const [text, setText] = useState("");
-  const { open: settingsOpen, setOpen: setSettingsOpen, ref: stackRef } = useSheet();
-  const ref = useRef<HTMLTextAreaElement>(null);
-
-  useEffect(() => {
-    const el = ref.current;
-    if (!el) return;
-    el.style.height = "0px";
-    el.style.height = `${Math.min(el.scrollHeight, 240)}px`;
-  }, [text]);
-
-  useEffect(() => ref.current?.focus(), []);
+  const sheet = useSheet();
 
   const submit = () => {
     const value = text.trim();
@@ -138,39 +173,14 @@ export function Composer({
 
   return (
     <div className="composer-wrap">
-      <div className="composer-stack" ref={stackRef}>
-        {settings && (
-          <div className={`composer-sheet ${settingsOpen ? "is-open" : ""}`} aria-hidden={!settingsOpen} inert={!settingsOpen}>
-            <div className="composer-sheet-inner">{settings}</div>
-          </div>
-        )}
+      <div className="composer-stack" ref={sheet.ref}>
+        {settings && <ComposerSheet open={sheet.open}>{settings}</ComposerSheet>}
         <form className="composer" onSubmit={(e) => { e.preventDefault(); submit(); }}>
-          <textarea
-            ref={ref}
-            rows={1}
-            value={text}
-            placeholder="Message"
-            onChange={(e) => setText(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
-                e.preventDefault();
-                submit();
-              }
-            }}
-          />
+          <MessageBox value={text} onChange={setText} onSubmit={submit} autoFocus />
           <div className="composer-bar">
             <div className="composer-bar-start">
               {settings && (
-                <button
-                  type="button"
-                  className={`icon-button ${settingsOpen ? "is-active" : ""}`}
-                  aria-label="Chat type settings"
-                  aria-expanded={settingsOpen}
-                  title="Settings for this chat type"
-                  onClick={() => setSettingsOpen((o) => !o)}
-                >
-                  <SettingsIcon size={16} />
-                </button>
+                <SheetButton open={sheet.open} label="Chat type settings" title="Settings for this chat type" onClick={() => sheet.setOpen((o) => !o)} />
               )}
               {reasoning && <ReasoningControls {...reasoning} />}
             </div>

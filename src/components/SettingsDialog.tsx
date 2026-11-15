@@ -1,8 +1,13 @@
-import { useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import { useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from "react";
 import { getModelAdapter, modelAdapters } from "../adapters/registry";
-import { saveNow, setState, uid, useStore, type Provider } from "../state/store";
+import { saveNow, setState, uid, updateVoice, useStore, type Provider } from "../state/store";
 import { errorText } from "../lib/http";
+import { ColorPicker } from "./ColorPicker";
 import { CheckIcon, PlusIcon, RefreshIcon, ServerIcon, SettingsIcon, TrashIcon, XIcon, AlertIcon } from "./Icons";
+import { Modal } from "./Modal";
+import { Segmented } from "./Segmented";
+import { Field } from "./Field";
+import { trackPointer } from "../lib/drag";
 
 type Test = { state: "idle" } | { state: "running" } | { state: "ok"; count: number } | { state: "error"; message: string };
 
@@ -33,22 +38,19 @@ function ProviderEditor({ provider }: { provider: Provider }) {
 
   return (
     <div className="provider-editor" key={provider.id}>
-      <div className="field">
-        <label>Name</label>
+      <Field label="Name">
         <input value={provider.name} onChange={(e) => update({ name: e.target.value })} />
-      </div>
+      </Field>
       <p className="adapter-note"><strong>{adapter.label}.</strong> {adapter.description}</p>
       {adapter.fields.map((f) => (
-        <div className="field" key={f.key}>
-          <label>{f.label}</label>
+        <Field key={f.key} label={f.label} hint={f.help}>
           <input
             type={f.type === "password" ? "password" : f.type === "number" ? "number" : "text"}
             placeholder={f.placeholder}
             value={provider.settings[f.key] ?? ""}
             onChange={(e) => update({ settings: { ...provider.settings, [f.key]: e.target.value } })}
           />
-          {f.help && <small>{f.help}</small>}
-        </div>
+        </Field>
       ))}
       <div className="provider-actions">
         <button className="button" onClick={run} disabled={test.state === "running"}>
@@ -70,84 +72,121 @@ const BAR_SCALES = [
   { value: "model", label: "Max", title: "The full bar is the most the model can handle. Your limit shows as a lighter section." },
 ] as const;
 
-/** Chooses what the composer's context bar measures against. */
-function ContextBarChoice() {
-  const scale = useStore((s) => s.contextBar);
+/** A General setting: its name, and a choice between a few options. */
+function Choice<T extends string | boolean>({ label, ...segmented }: {
+  label: string;
+  options: readonly { value: T; label: string; title?: string }[];
+  value: T;
+  onChange: (value: T) => void;
+}) {
   return (
     <div className="setting-row">
-      <span>Context bar shows</span>
-      <div className="segmented" role="radiogroup" aria-label="Context bar shows">
-        {BAR_SCALES.map((o) => (
-          <button
-            key={o.value}
-            type="button"
-            role="radio"
-            aria-checked={scale === o.value}
-            className={scale === o.value ? "is-active" : ""}
-            title={o.title}
-            onClick={() => setState((s) => ({ ...s, contextBar: o.value }))}
-          >
-            {o.label}
-          </button>
-        ))}
-      </div>
+      <span>{label}</span>
+      <Segmented label={label} {...segmented} />
     </div>
   );
 }
+
+/** Chooses what the composer's context bar measures against. */
+function ContextBarChoice() {
+  const scale = useStore((s) => s.contextBar);
+  return <Choice label="Context bar shows" options={BAR_SCALES} value={scale} onChange={(contextBar) => setState((s) => ({ ...s, contextBar }))} />;
+}
+
+const ON_OFF = [{ value: true, label: "On" }, { value: false, label: "Off" }] as const;
 
 /** Whether saved code reaches the page straight away, or on the next restart. */
 function HotReloadChoice() {
   const on = useStore((s) => s.hotReload);
-  return (
-    <div className="setting-row">
-      <span>Hot reload</span>
-      <div className="segmented" role="radiogroup" aria-label="Hot reload">
-        {[true, false].map((value) => (
-          <button
-            key={String(value)}
-            type="button"
-            role="radio"
-            aria-checked={on === value}
-            className={on === value ? "is-active" : ""}
-            onClick={() => setState((s) => ({ ...s, hotReload: value }))}
-          >
-            {value ? "On" : "Off"}
-          </button>
-        ))}
-      </div>
-    </div>
-  );
+  return <Choice label="Hot reload" options={ON_OFF} value={on} onChange={(hotReload) => setState((s) => ({ ...s, hotReload }))} />;
 }
+
+const VOICE_LEAVE = [
+  { value: "ask", label: "Ask" },
+  { value: "stop", label: "Stop" },
+  { value: "keep", label: "Keep" },
+] as const;
+
+/** What leaving a voice chat does to the voice server. */
+function VoiceLeaveChoice() {
+  const onLeave = useStore((s) => s.voice.onLeave ?? "ask");
+  return <Choice label="Voice server after a voice chat" options={VOICE_LEAVE} value={onLeave} onChange={(choice) => updateVoice({ onLeave: choice })} />;
+}
+
+/** Whether closing the last page stops the local model and the voice server, freeing the GPU. */
+function StopOnCloseChoice() {
+  const on = useStore((s) => s.stopOnClose);
+  return <Choice label="Stop models when the page closes" options={ON_OFF} value={on} onChange={(stopOnClose) => setState((s) => ({ ...s, stopOnClose }))} />;
+}
+
+const SHOW_HIDE = [{ value: true, label: "Show" }, { value: false, label: "Hide" }] as const;
 
 /** Shows or hides the GPU load meter in the header. */
 function GpuLoadChoice() {
   const show = useStore((s) => s.showGpuLoad);
+  return <Choice label="GPU load meter" options={SHOW_HIDE} value={show} onChange={(showGpuLoad) => setState((s) => ({ ...s, showGpuLoad }))} />;
+}
+
+const ACCENTS = [
+  { value: "#6d5ef0", name: "Violet" },
+  { value: "#3b82f6", name: "Blue" },
+  { value: "#0ea5a4", name: "Teal" },
+  { value: "#2f9e6a", name: "Green" },
+  { value: "#e0a020", name: "Amber" },
+  { value: "#ec6a3c", name: "Orange" },
+  { value: "#d6455d", name: "Red" },
+  { value: "#d946a8", name: "Pink" },
+];
+
+/** Picks the accent colour. The rainbow swatch opens a picker for any colour. Reset goes back to the theme's own. */
+function AccentChoice() {
+  const accent = useStore((s) => s.accent);
+  const set = (value: string | undefined) => setState((s) => ({ ...s, accent: value }));
+  const custom = !!accent && !ACCENTS.some((c) => c.value === accent);
+  const [open, setOpen] = useState(custom);
   return (
-    <div className="setting-row">
-      <span>GPU load meter</span>
-      <div className="segmented" role="radiogroup" aria-label="GPU load meter">
-        {[true, false].map((value) => (
+    <div className="setting-row accent-setting">
+      <div className="accent-head">
+        <span>Accent</span>
+        <div className="accent-swatches" role="radiogroup" aria-label="Accent colour">
+          {ACCENTS.map((c) => (
+            <button
+              key={c.value}
+              type="button"
+              role="radio"
+              aria-checked={accent === c.value}
+              aria-label={c.name}
+              title={c.name}
+              className={`accent-swatch ${accent === c.value ? "is-active" : ""}`}
+              style={{ "--swatch": c.value } as CSSProperties}
+              onClick={() => set(c.value)}
+            />
+          ))}
           <button
-            key={String(value)}
             type="button"
-            role="radio"
-            aria-checked={show === value}
-            className={show === value ? "is-active" : ""}
-            onClick={() => setState((s) => ({ ...s, showGpuLoad: value }))}
-          >
-            {value ? "Show" : "Hide"}
-          </button>
-        ))}
+            aria-label="Pick your own"
+            aria-expanded={open}
+            title="Pick your own"
+            className={`accent-swatch is-custom ${custom ? "is-picked" : ""} ${open ? "is-active" : ""}`}
+            style={custom ? ({ "--swatch": accent } as CSSProperties) : undefined}
+            onClick={() => setOpen((o) => !o)}
+          />
+          {accent && (
+            <button type="button" className="accent-reset" onClick={() => set(undefined)}>
+              Reset
+            </button>
+          )}
+        </div>
+      </div>
+      <div className={`accent-drawer ${open ? "is-open" : ""}`} inert={!open}>
+        <div>
+          <ColorPicker value={accent ?? ACCENTS[0].value} onChange={set} />
+        </div>
       </div>
     </div>
   );
 }
 
-/**
- * The daemon's address, straight to its port. The page's /api proxy points at
- * whatever daemon was running when the page loaded, which after a restart is
- * dead, so a restart must not go through it.
- */
 /** Asks the daemon to restart. */
 async function requestRestart() {
   const res = await fetch("/api/restart", { method: "POST" });
@@ -247,7 +286,6 @@ function useResize() {
     if (!box || e.button !== 0) return;
     e.preventDefault();
     const handle = e.currentTarget;
-    handle.setPointerCapture(e.pointerId);
     const x = edge.includes("e") ? 1 : edge.includes("w") ? -1 : 0;
     const y = edge.includes("s") ? 1 : edge.includes("n") ? -1 : 0;
     const from = { px: e.clientX, py: e.clientY, width: box.width, height: box.height };
@@ -255,26 +293,23 @@ function useResize() {
     document.body.classList.add("is-dragging-resize");
     document.body.style.cursor = getComputedStyle(handle).cursor;
 
-    const move = (ev: PointerEvent) => {
-      const clamp = (v: number, min: number, max: number) => Math.round(Math.max(min, Math.min(max, v)));
-      size = {
-        width: clamp(from.width + (ev.clientX - from.px) * x * 2, MIN_SIZE.width, window.innerWidth - 32),
-        height: clamp(from.height + (ev.clientY - from.py) * y * 2, MIN_SIZE.height, window.innerHeight - 32),
-      };
-      setDragging(size);
-    };
-    const end = () => {
-      handle.removeEventListener("pointermove", move);
-      handle.removeEventListener("pointerup", end);
-      handle.removeEventListener("pointercancel", end);
-      document.body.classList.remove("is-dragging-resize");
-      document.body.style.cursor = "";
-      setDragging(null);
-      setState((s) => ({ ...s, settingsSize: size }));
-    };
-    handle.addEventListener("pointermove", move);
-    handle.addEventListener("pointerup", end);
-    handle.addEventListener("pointercancel", end);
+    const clamp = (v: number, min: number, max: number) => Math.round(Math.max(min, Math.min(max, v)));
+    trackPointer(
+      e,
+      (ev) => {
+        size = {
+          width: clamp(from.width + (ev.clientX - from.px) * x * 2, MIN_SIZE.width, window.innerWidth - 32),
+          height: clamp(from.height + (ev.clientY - from.py) * y * 2, MIN_SIZE.height, window.innerHeight - 32),
+        };
+        setDragging(size);
+      },
+      () => {
+        document.body.classList.remove("is-dragging-resize");
+        document.body.style.cursor = "";
+        setDragging(null);
+        setState((s) => ({ ...s, settingsSize: size }));
+      },
+    );
   };
 
   const size = dragging ?? saved;
@@ -301,56 +336,57 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
   };
 
   return (
-    <div className="overlay" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
-      <div className="dialog settings-dialog" role="dialog" aria-label="Settings" ref={resize.ref} style={resize.style}>
-        <div className="dialog-body">
-          <div className="provider-list">
-            <button className={`provider-tab ${view === "general" ? "is-active" : ""}`} onClick={() => setView("general")}>
-              <SettingsIcon size={15} />
-              <span>General</span>
+    <Modal className="settings-dialog" label="Settings" onDismiss={onClose} dialogRef={resize.ref} style={resize.style}>
+      <div className="dialog-body">
+        <div className="provider-list">
+          <button className={`provider-tab ${view === "general" ? "is-active" : ""}`} onClick={() => setView("general")}>
+            <SettingsIcon size={15} />
+            <span>General</span>
+          </button>
+          <h4 className="provider-list-heading">Model providers</h4>
+          {providers.map((p) => (
+            <button key={p.id} className={`provider-tab ${p.id === active?.id ? "is-active" : ""}`} onClick={() => setView(p.id)}>
+              <ServerIcon size={15} />
+              <span>{p.name}</span>
             </button>
-            <h4 className="provider-list-heading">Model providers</h4>
-            {providers.map((p) => (
-              <button key={p.id} className={`provider-tab ${p.id === active?.id ? "is-active" : ""}`} onClick={() => setView(p.id)}>
-                <ServerIcon size={15} />
-                <span>{p.name}</span>
-              </button>
-            ))}
-            <button className={`provider-tab is-add ${adding ? "is-active" : ""}`} onClick={() => setView("add")}>
-              <PlusIcon size={15} />
-              <span>Add provider</span>
-            </button>
-            <button className="provider-tab dialog-close" onClick={onClose}>
-              <XIcon size={15} />
-              <span>Close</span>
-            </button>
-          </div>
-          <div className="provider-pane">
-            {view === "general" ? (
-              <div className="general-settings">
-                <ContextBarChoice />
-                <GpuLoadChoice />
-                <HotReloadChoice />
-                <Restart />
-              </div>
-            ) : adding ? (
-              <div className="adapter-grid">
-                {modelAdapters.map((a) => (
-                  <button key={a.id} className="adapter-card" onClick={() => add(a.id)}>
-                    <strong>{a.label}</strong>
-                    <span>{a.description}</span>
-                  </button>
-                ))}
-              </div>
-            ) : active ? (
-              <ProviderEditor key={active.id} provider={active} />
-            ) : (
-              <p className="muted">Add a provider to get started.</p>
-            )}
-          </div>
+          ))}
+          <button className={`provider-tab is-add ${adding ? "is-active" : ""}`} onClick={() => setView("add")}>
+            <PlusIcon size={15} />
+            <span>Add provider</span>
+          </button>
+          <button className="provider-tab dialog-close" onClick={onClose}>
+            <XIcon size={15} />
+            <span>Close</span>
+          </button>
         </div>
-        {resize.handles}
+        <div className="provider-pane">
+          {view === "general" ? (
+            <div className="general-settings">
+              <AccentChoice />
+              <ContextBarChoice />
+              <GpuLoadChoice />
+              <HotReloadChoice />
+              <VoiceLeaveChoice />
+              <StopOnCloseChoice />
+              <Restart />
+            </div>
+          ) : adding ? (
+            <div className="adapter-grid">
+              {modelAdapters.map((a) => (
+                <button key={a.id} className="adapter-card" onClick={() => add(a.id)}>
+                  <strong>{a.label}</strong>
+                  <span>{a.description}</span>
+                </button>
+              ))}
+            </div>
+          ) : active ? (
+            <ProviderEditor key={active.id} provider={active} />
+          ) : (
+            <p className="muted">Add a provider to get started.</p>
+          )}
+        </div>
       </div>
-    </div>
+      {resize.handles}
+    </Modal>
   );
 }

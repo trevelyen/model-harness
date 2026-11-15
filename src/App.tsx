@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { currentReasoning, setReasoning, useStore } from "./state/store";
+import { useEffect, useRef, useState } from "react";
+import { currentReasoning, getState, setReasoning, useStore } from "./state/store";
 import { send, stop } from "./state/chat";
 import { Sidebar } from "./components/Sidebar";
 import { ModelPicker } from "./components/ModelPicker";
@@ -11,7 +11,9 @@ import { DiffIcon, SidebarIcon, SlidersIcon } from "./components/Icons";
 import { SystemMeters } from "./components/SystemMeters";
 import { RestartNotice } from "./components/RestartNotice";
 import { ChangesPane } from "./components/ChangesPane";
-import { VoiceChat } from "./components/VoiceMock";
+import { VoiceChat } from "./components/VoiceChat";
+import { StopVoiceDialog } from "./components/StopVoiceDialog";
+import { stopVoiceServer, voiceServerRunning } from "./voice/client";
 
 export function App() {
   const conversation = useStore((s) => s.conversations.find((c) => c.id === s.activeId));
@@ -30,6 +32,9 @@ export function App() {
   // Only text chats make file changes, so only they get the changes pane.
   const isText = (conversation?.kind ?? "text") === "text";
   const busy = !!conversation?.messages.at(-1)?.streaming;
+  // Leaving a voice chat for another kind asks whether to stop the voice server, if it's running.
+  const [askStopVoice, setAskStopVoice] = useState(false);
+  const previousKind = useRef(conversation?.kind);
   // The latest reply's prompt plus answer is what the next message builds on.
   const lastUsage = conversation?.messages.findLast((m) => m.usage?.inputTokens)?.usage;
   // A local model's limit is the setting, so moving the slider shows straight away.
@@ -48,6 +53,19 @@ export function App() {
         max: barScale === "limit" ? limit : Math.max(limit, modelMax ?? 0),
       }
     : undefined;
+
+  // A chosen accent overrides the theme's, in light and dark alike.
+  const accent = useStore((s) => s.accent);
+  useEffect(() => {
+    const root = document.documentElement.style;
+    if (accent) {
+      root.setProperty("--accent", accent);
+      root.setProperty("--accent-soft", `color-mix(in srgb, ${accent} 14%, transparent)`);
+    } else {
+      root.removeProperty("--accent");
+      root.removeProperty("--accent-soft");
+    }
+  }, [accent]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -74,6 +92,26 @@ export function App() {
       window.removeEventListener("resize", onResize);
       window.clearTimeout(timer);
     };
+  }, []);
+
+  useEffect(() => {
+    const was = previousKind.current;
+    previousKind.current = conversation?.kind;
+    if (was !== "voice" || conversation?.kind === "voice") return;
+    const onLeave = getState().voice.onLeave ?? "ask";
+    if (onLeave === "keep") return;
+    void voiceServerRunning().then((running) => {
+      if (!running) return;
+      if (onLeave === "stop") void stopVoiceServer();
+      else setAskStopVoice(true);
+    });
+  }, [conversation?.id]);
+
+  // Tells the daemon a page is open, for Settings → Stop models when the page closes.
+  // EventSource reconnects by itself after a daemon restart.
+  useEffect(() => {
+    const presence = new EventSource("/api/presence");
+    return () => presence.close();
   }, []);
 
   const closeOnMobile = () => window.innerWidth <= 860 && setSidebarOpen(false);
@@ -104,7 +142,7 @@ export function App() {
         <div className="main-body">
           <div className="chat-column">
             {conversation?.kind === "voice" ? (
-              <VoiceChat key={conversation.id} />
+              <VoiceChat key={conversation.id} conversation={conversation} />
             ) : (
               <>
                 <Thread conversation={conversation} />
@@ -130,6 +168,7 @@ export function App() {
       </main>
       <HarnessPanel open={harnessOpen} onClose={() => setHarnessOpen(false)} />
       {settingsOpen && <SettingsDialog onClose={() => setSettingsOpen(false)} />}
+      {askStopVoice && <StopVoiceDialog onClose={() => setAskStopVoice(false)} />}
       {isText && (
         <button
           type="button" className={`corner-button ${changesOpen ? "is-active" : ""}`}

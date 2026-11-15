@@ -33,6 +33,8 @@ export interface Message {
   /** When the first text or reasoning arrived, after loading and reading the prompt. */
   firstTokenAt?: number;
   finishedAt?: number;
+  /** A voice chat's turn: seconds into its session, and whether it was typed or cut off. */
+  voice?: { at: number; typed?: boolean; cutOff?: boolean };
 }
 
 export type MessagePart = { type: "text"; text: string } | ({ type: "tool" } & ToolEvent);
@@ -88,11 +90,25 @@ export interface State {
   contextBar: "model" | "limit";
   /** Whether the header shows the GPU load meter. VRAM and RAM always show. */
   showGpuLoad: boolean;
+  /** The accent colour as a hex value. Absent, it uses the theme's own. */
+  accent?: string;
   /** Send saved code to the page straight away. Off, it reaches the page on a restart. Read by vite.config.ts and server/pi.ts. */
   hotReload: boolean;
   prompts: SavedPrompt[];
   /** The settings dialog's size once dragged. Absent, it uses the default from the CSS. */
   settingsSize?: { width: number; height: number };
+  /** When the last page closes, the daemon stops llama-server and the voice server. Read by server/api.ts. */
+  stopOnClose: boolean;
+  /** Voice chats: the service, each service's settings as changed in the sheet, and whether the mic is used. */
+  voice: VoiceSettings;
+}
+
+export interface VoiceSettings {
+  service: string;
+  mic: boolean;
+  values: Record<string, Record<string, unknown>>;
+  /** What leaving a voice chat does to the voice server, which holds its models in GPU memory. */
+  onLeave: "ask" | "stop" | "keep";
 }
 
 // Chats and settings live in the repo's data/ folder, through the dev server.
@@ -122,6 +138,8 @@ const seed: State = {
   showGpuLoad: false,
   hotReload: false,
   prompts: [],
+  stopOnClose: false,
+  voice: { service: "cascade", mic: true, values: {}, onLeave: "ask" },
 };
 
 /** Fixes data saved by earlier versions. */
@@ -173,10 +191,19 @@ function saveSecrets(providers: Provider[]) {
   }
 }
 
+// The settings saved to data/state.json: everything but the chats, which are saved one file each.
+const SETTINGS_KEYS = [
+  "providers", "harnesses", "selection", "harnessId", "activeId", "reasoning", "contextBar",
+  "showGpuLoad", "accent", "hotReload", "prompts", "settingsSize", "voice", "stopOnClose",
+] as const satisfies readonly (keyof State)[];
+
+function settingsOf(s: State) {
+  return Object.fromEntries(SETTINGS_KEYS.map((key) => [key, s[key]]));
+}
+
 /** The full settings, keys included, for the server's backup in the home folder. */
 function fullSettingsJson(s: State) {
-  const { providers, harnesses, selection, harnessId, activeId, reasoning, contextBar, showGpuLoad, hotReload, prompts, settingsSize } = s;
-  return JSON.stringify({ providers, harnesses, selection, harnessId, activeId, reasoning, contextBar, showGpuLoad, hotReload, prompts, settingsSize });
+  return JSON.stringify(settingsOf(s));
 }
 
 let state: State = seed;
@@ -188,8 +215,7 @@ let savedSettingsJson = "";
 const savedChats = new Map<string, Conversation>();
 
 function settingsJson(s: State) {
-  const { providers, harnesses, selection, harnessId, activeId, reasoning, contextBar, showGpuLoad, hotReload, prompts, settingsSize } = s;
-  return JSON.stringify({ providers: providers.map(withoutSecrets), harnesses, selection, harnessId, activeId, reasoning, contextBar, showGpuLoad, hotReload, prompts, settingsSize });
+  return JSON.stringify({ ...settingsOf(s), providers: s.providers.map(withoutSecrets) });
 }
 
 async function put(path: string, body: string) {
@@ -322,6 +348,11 @@ export function setReasoning(update: (r: ReasoningChoice) => ReasoningChoice) {
 
 export function updateConversation(id: string, update: (c: Conversation) => Conversation) {
   setState((s) => ({ ...s, conversations: s.conversations.map((c) => (c.id === id ? update(c) : c)) }));
+}
+
+/** Changes the voice chat settings: a patch, or a function of the current ones for a change that depends on them. */
+export function updateVoice(change: Partial<VoiceSettings> | ((voice: VoiceSettings) => Partial<VoiceSettings>)) {
+  setState((s) => ({ ...s, voice: { ...s.voice, ...(typeof change === "function" ? change(s.voice) : change) } }));
 }
 
 export function updateMessage(conversationId: string, messageId: string, update: (m: Message) => Message) {

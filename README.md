@@ -131,6 +131,23 @@ How it fits together (`server/pi.ts`):
 - Each chat is one pi session, kept in `data/pi/sessions/`. pi remembers the conversation itself, so only the newest message is sent. Messages sent with another harness earlier in the chat aren't part of pi's history.
 - The harness's system prompt replaces pi's own coding prompt. Leave it empty to keep pi's. Temperature, top-p, top-k and min-p go to OpenAI-compatible models, and Max tokens caps each reply. The Think toggle sets pi's thinking level.
 
+## Voice chats
+
+**Voice** in the sidebar starts a voice chat: you talk, it talks back, and you can cut in while it speaks. You can also type into the same box. The transcript is saved in the chat like any other. The cog in the message box picks the service and its settings, including the voice it speaks in.
+
+| Service | What it is |
+| ------- | ---------- |
+| Cascade | Whisper hears you, the model picked at the top writes the reply, and Chatterbox (or Fish S2 Pro) speaks it. Needs a local GGUF or an OpenAI-compatible model. About 6 GB of GPU memory on top of the language model. |
+| Haru 4B | A single speech-to-speech model that listens while it speaks. Needs an NVIDIA GPU with about 12 GB free, or a Mac with Apple silicon. |
+
+Wear headphones, since both listen while they speak.
+
+How it fits together:
+
+- The services are Python, in `speech/`, copied from the speech-testing app. They need [uv](https://docs.astral.sh/uv/). The daemon starts the voice server (`server/voice.ts`) the first time a voice chat opens and keeps it running until the daemon stops. The first start builds its environment (a few GB), and each service downloads its models the first time it is used.
+- The page reaches it through `/api/voice/`, and the conversation runs over a websocket at `/api/voice/session`: your microphone in and the service's audio out, as raw audio at the service's sample rate. The audio worklets are `public/voice/`.
+- Voice clips are kept in `data/voice/voices/`. Only use voices you have the right to use.
+
 ## Storage
 
 Chats, providers and harnesses are saved as JSON files in `data/`, which git ignores:

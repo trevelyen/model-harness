@@ -7,6 +7,7 @@ import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { settingOn } from "./data.ts";
 
 // pi's settings, sessions and models.json live here, away from ~/.pi.
 const PI_DIR = join(resolve(process.env.MODEL_HARNESS_DATA || "data"), "pi");
@@ -132,15 +133,6 @@ function isInside(path: string, root: string) {
   return !inside.startsWith("..") && !isAbsolute(inside);
 }
 
-/** Settings → Hot reload, which the app saves with its other settings. Off unless set. */
-async function hotReloadOn() {
-  try {
-    return JSON.parse(await readFile(join(resolve(process.env.MODEL_HARNESS_DATA || "data"), "state.json"), "utf8")).hotReload === true;
-  } catch {
-    return false;
-  }
-}
-
 /** Sets pi's compaction and retry settings for the next run, keeping the rest of its settings.json. */
 async function writeSettings(loop: PiRunRequest["loop"] = {}) {
   const path = join(PI_DIR, "settings.json");
@@ -237,7 +229,7 @@ export async function runPi(run: PiRunRequest, endpoint: PiEndpoint, res: Server
   const hooks = run.hooks ?? [];
   const maxSteps = run.loop?.maxSteps ?? 0;
   if (hooks.length || maxSteps) args.push("-e", HARNESS_HOOKS);
-  if (isInside(cwd, APP_ROOT) && !(await hotReloadOn())) args.push("-e", HARNESS_SELF);
+  if (isInside(cwd, APP_ROOT) && !(await settingOn("hotReload"))) args.push("-e", HARNESS_SELF);
   // The list is exact: anything left out, built in or from an extension, is off.
   if (run.tools) args.push(...(run.tools.length ? ["--tools", run.tools.join(",")] : ["--no-tools"]));
   const command = expandHome(run.command?.trim() || "pi");

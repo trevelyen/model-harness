@@ -8,8 +8,9 @@ const host = process.env.HOST || "127.0.0.1";
 
 // The API runs as its own process (server/daemon.ts), started by server/dev.ts.
 // Nothing here imports server/, so editing it never restarts Vite.
+// ws carries a voice chat's session socket through to the daemon.
 const apiPort = Number(process.env.API_PORT);
-const proxy = apiPort ? { "/api": `http://127.0.0.1:${apiPort}` } : undefined;
+const proxy = apiPort ? { "/api": { target: `http://127.0.0.1:${apiPort}`, ws: true } } : undefined;
 
 /**
  * Settings → Hot reload, off by default. While it's off, saved code isn't sent to

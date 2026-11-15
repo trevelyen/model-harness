@@ -35,6 +35,12 @@ async function readJson(path: string): Promise<unknown> {
   }
 }
 
+/** An on/off setting the page saved in state.json, for the server to act on. Off unless it's set. */
+export async function settingOn(key: "hotReload" | "stopOnClose") {
+  const state = (await readJson(STATE_FILE)) as Record<string, unknown> | null;
+  return state?.[key] === true;
+}
+
 export async function readAll() {
   let state = await readJson(STATE_FILE);
   let names: string[] = [];

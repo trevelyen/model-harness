@@ -1,0 +1,27 @@
+[project]
+name = "speech-testing"
+version = "0.1.0"
+description = "model-harness voice chats: Cascade and Haru, run by the API daemon"
+requires-python = ">=3.11,<3.14"
+dependencies = [
+    "aiohttp>=3.10,<4",
+    "numpy>=1.26",
+    "soundfile>=0.13",
+    "haru-speech-mlx==0.1.0; sys_platform == 'darwin' and platform_machine == 'arm64'",
+    "haru-speech==0.1.1; sys_platform == 'linux'",
+    "kokoro-onnx>=0.6.1,<0.7",
+    "silero-vad>=6,<7",
+    "scipy>=1.13",
+    "transformers>=4.50",
+    "torch>=2.4",
+]
+
+[project.scripts]
+speech-testing = "speech_testing.server:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/speech_testing"]

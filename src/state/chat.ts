@@ -33,7 +33,8 @@ export function newConversation(kind: ConversationKind = "text") {
   return id;
 }
 
-function titleFrom(text: string) {
+/** A chat's title from its first message: the first line, cut to 48 characters. */
+export function titleFrom(text: string) {
   const line = text.trim().split("\n")[0];
   return line.length > 48 ? `${line.slice(0, 48).trimEnd()}...` : line || "New chat";
 }

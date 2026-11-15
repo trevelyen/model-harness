@@ -1,0 +1,30 @@
+# The environment Fish Audio's S2 Pro runs in: the fish-speech code at one
+# commit, with the PyTorch and transformers it pins. `worker.py` runs here as
+# a process of its own. uv builds this at the first start that picks S2 Pro.
+#
+# The code is under the Fish Audio Community License and the weights under
+# the Fish Audio Research License: free for research and non-commercial use,
+# personal testing included. Commercial use needs a licence from Fish Audio.
+[project]
+name = "speech-testing-fish"
+version = "0.1.0"
+description = "Fish Audio S2 Pro, as a worker process of speech-testing"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "fish-speech @ git+https://github.com/fishaudio/fish-speech@0f8a12e8a651062fdee9c33a894bdccd3a8513f1",
+    "scipy>=1.13",
+]
+
+[tool.uv]
+package = false
+override-dependencies = [
+    # As fish-speech's own pyproject has it: a dependency of its codec pins a protobuf too old for the rest.
+    "protobuf>=3.20.0,<6.0.0",
+]
+constraint-dependencies = [
+    # The versions fish-speech's own lock file has. A newer tensorboard wants a
+    # protobuf above the cap and the codec fails to import: "Detected
+    # incompatible Protobuf Gencode/Runtime versions".
+    "tensorboard==2.20.0",
+    "numpy==1.26.4",
+]

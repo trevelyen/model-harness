@@ -3,16 +3,17 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { execFile, spawn, type ChildProcess } from "node:child_process";
 import { mkdir, readFile, readdir, stat } from "node:fs/promises";
-import { createServer } from "node:net";
 import { freemem, homedir, totalmem, userInfo } from "node:os";
 import { join, basename, dirname, resolve } from "node:path";
 import { Readable } from "node:stream";
 import { fileURLToPath } from "node:url";
 import { pipeline } from "node:stream/promises";
 import { readHeader, reasoningSupport, type ReasoningSupport } from "./gguf.ts";
-import { deleteChat, isSafeId, readAll, writeBackup, writeChat, writeState } from "./data.ts";
+import { deleteChat, isSafeId, readAll, settingOn, writeBackup, writeChat, writeState } from "./data.ts";
 import { piRuns, runPi, sendToRun, stopAllPi, type PiEndpoint, type PiRunRequest } from "./pi.ts";
 import { randomUUID } from "node:crypto";
+import { ensureVoice, stopVoice, voiceStatus, voiceTarget } from "./voice.ts";
+import { freePort, waitUntilAnswering } from "./net.ts";
 
 const DROP_REQUEST_HEADERS = new Set([
   "host", "origin", "referer", "cookie", "connection", "content-length",
@@ -33,6 +34,22 @@ async function readBody(req: IncomingMessage): Promise<Buffer> {
   const chunks: Buffer[] = [];
   for await (const chunk of req) chunks.push(chunk as Buffer);
   return Buffer.concat(chunks);
+}
+
+/**
+ * The request's JSON body. `ifEmpty` is what an empty body stands for; without
+ * it an empty body throws, so a write never saves nothing over real data.
+ */
+async function readJson<T>(req: IncomingMessage, ifEmpty?: object): Promise<T> {
+  const text = (await readBody(req)).toString();
+  return (text === "" && ifEmpty !== undefined ? ifEmpty : JSON.parse(text)) as T;
+}
+
+/** Answers 405 when the request isn't `method`. True when it answered. */
+export function wrongMethod(req: IncomingMessage, res: ServerResponse, method: "POST" | "PUT") {
+  if (req.method === method) return false;
+  sendJson(res, 405, { error: `Use ${method}` });
+  return true;
 }
 
 // The proxy forwards API keys, so refuse requests from other sites.
@@ -186,16 +203,6 @@ function dropCaches(): Promise<boolean> {
   });
 }
 
-function freePort(): Promise<number> {
-  return new Promise((resolve, reject) => {
-    const server = createServer();
-    server.listen(0, "127.0.0.1", () => {
-      const address = server.address();
-      server.close(() => (typeof address === "object" && address ? resolve(address.port) : reject(new Error("No port"))));
-    });
-  });
-}
-
 interface LocalServer {
   key: string;
   model: string;
@@ -216,25 +223,16 @@ function stopLocal() {
   }
 }
 
-async function waitForHealth(server: LocalServer, timeoutMs: number) {
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    if (server.process.exitCode !== null) {
-      const log = server.log.slice(-15).join("\n");
-      const hint = /out of memory|unable to allocate CUDA/i.test(log)
-        ? "Not enough VRAM for this model. Clear GPU layers in Settings so it fits automatically, or set a lower number.\n\n"
-        : "";
-      throw new Error(`${hint}llama-server exited (code ${server.process.exitCode}).\n${log}`);
-    }
-    try {
-      const res = await fetch(`http://127.0.0.1:${server.port}/health`);
-      if (res.ok) return;
-    } catch {
-      // Not listening yet.
-    }
-    await new Promise((r) => setTimeout(r, 500));
-  }
-  throw new Error("llama-server did not become ready in time");
+function waitForHealth(server: LocalServer, timeoutMs: number) {
+  const stopped = () => {
+    if (server.process.exitCode === null) return undefined;
+    const log = server.log.slice(-15).join("\n");
+    const hint = /out of memory|unable to allocate CUDA/i.test(log)
+      ? "Not enough VRAM for this model. Clear GPU layers in Settings so it fits automatically, or set a lower number.\n\n"
+      : "";
+    return new Error(`${hint}llama-server exited (code ${server.process.exitCode}).\n${log}`);
+  };
+  return waitUntilAnswering(`http://127.0.0.1:${server.port}/health`, timeoutMs, stopped, "llama-server did not become ready in time");
 }
 
 /** The context size llama-server actually settled on, which may differ from the one asked for. */
@@ -357,6 +355,49 @@ async function piEndpoint({ provider, model }: PiRequest): Promise<{ endpoint: P
   throw new Error(`pi cannot use ${adapter} models yet`);
 }
 
+/**
+ * Where a voice chat's Cascade sends its words: the model picked in the app.
+ * Cascade speaks OpenAI's chat completions, so a local GGUF or an OpenAI-style server.
+ */
+async function voiceLlm(req: IncomingMessage, res: ServerResponse) {
+  const body = await readJson<PiRequest>(req, {});
+  if (!body.provider || !body.model) return sendJson(res, 400, { error: "Pick a model at the top to talk to." });
+  if (body.provider.adapter === "anthropic") {
+    return sendJson(res, 400, { error: "Voice chats need a local GGUF or an OpenAI-style model. Pick one at the top." });
+  }
+  const { endpoint } = await piEndpoint(body);
+  return sendJson(res, 200, { url: endpoint.baseUrl, model: endpoint.model, key: endpoint.apiKey ?? "" });
+}
+
+// Settings → Stop models when the page closes. Each open page holds a /api/presence
+// stream. When the last one closes and none comes back within the grace period,
+// which covers a reload, llama-server and the voice server stop. pi runs need no
+// stopping: each ends when its page's reply stream closes.
+const CLOSE_GRACE = 10_000;
+let openPages = 0;
+let closeTimer: ReturnType<typeof setTimeout> | undefined;
+
+function presence(res: ServerResponse) {
+  res.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-cache" });
+  res.write(": open\n\n");
+  openPages++;
+  clearTimeout(closeTimer);
+  // A comment now and then, so nothing between here and the page closes an idle stream.
+  const ping = setInterval(() => res.write(": ping\n\n"), 25_000);
+  res.on("close", () => {
+    clearInterval(ping);
+    openPages--;
+    if (openPages === 0) closeTimer = setTimeout(() => void stopIfClosed(), CLOSE_GRACE);
+  });
+}
+
+async function stopIfClosed() {
+  if (openPages > 0 || !(await settingOn("stopOnClose"))) return;
+  if (local || voiceStatus().state === "running") console.log("No page open: stopping the models.");
+  stopLocal();
+  stopVoice();
+}
+
 // Staff agent messages waiting for the page to run them in the child chat, by request id.
 const staffWaiting = new Map<string, (answer: { reply?: string; error?: string }) => void>();
 
@@ -366,7 +407,7 @@ const staffWaiting = new Map<string, (answer: { reply?: string; error?: string }
  * The request reaches the page through the parent chat's own reply stream.
  */
 async function askStaff(req: IncomingMessage, res: ServerResponse) {
-  const { parentId, name, message } = JSON.parse((await readBody(req)).toString() || "{}") as { parentId?: string; name?: string; message?: string };
+  const { parentId, name, message } = await readJson<{ parentId?: string; name?: string; message?: string }>(req, {});
   const staffName = name?.trim() ?? "";
   if (!parentId || !isSafeId(parentId)) return sendJson(res, 400, { error: "Bad parent chat id" });
   if (!staffName || staffName.length > 40) return sendJson(res, 400, { error: "Give the staff agent a short name, up to 40 characters." });
@@ -394,21 +435,34 @@ export async function handle(req: IncomingMessage, res: ServerResponse, next: ()
       if (!local || local.process.exitCode !== null) return sendJson(res, 503, { error: "llama-server is not running" });
       return await forward(req, res, `http://127.0.0.1:${local.port}/${url.pathname.slice("/api/llama/".length)}${url.search}`);
     }
+    if (url.pathname === "/api/voice/llm") {
+      if (wrongMethod(req, res, "POST")) return;
+      return await voiceLlm(req, res);
+    }
+    if (url.pathname === "/api/voice/status") return sendJson(res, 200, voiceStatus());
+    if (url.pathname === "/api/voice/stop") {
+      if (wrongMethod(req, res, "POST")) return;
+      stopVoice();
+      return sendJson(res, 200, { ok: true });
+    }
+    if (url.pathname.startsWith("/api/voice/")) {
+      return await forward(req, res, voiceTarget(await ensureVoice(), url.pathname, url.search));
+    }
     if (url.pathname.startsWith("/api/data/chats/")) {
       const id = url.pathname.slice("/api/data/chats/".length);
       if (!isSafeId(id)) return sendJson(res, 400, { error: "Bad chat id" });
-      if (req.method === "PUT") await writeChat(id, JSON.parse((await readBody(req)).toString()));
+      if (req.method === "PUT") await writeChat(id, await readJson(req));
       else if (req.method === "DELETE") await deleteChat(id);
       else return sendJson(res, 405, { error: "Use PUT or DELETE" });
       return sendJson(res, 200, { ok: true });
     }
     switch (url.pathname) {
       case "/api/staffagent":
-        if (req.method !== "POST") return sendJson(res, 405, { error: "Use POST" });
+        if (wrongMethod(req, res, "POST")) return;
         return await askStaff(req, res);
       case "/api/staffagent/reply": {
-        if (req.method !== "POST") return sendJson(res, 405, { error: "Use POST" });
-        const { requestId, reply, error } = JSON.parse((await readBody(req)).toString() || "{}") as { requestId?: string; reply?: string; error?: string };
+        if (wrongMethod(req, res, "POST")) return;
+        const { requestId, reply, error } = await readJson<{ requestId?: string; reply?: string; error?: string }>(req, {});
         const resolve = requestId && staffWaiting.get(requestId);
         if (!resolve) return sendJson(res, 404, { error: "No staff agent message is waiting for that reply" });
         staffWaiting.delete(requestId);
@@ -418,13 +472,13 @@ export async function handle(req: IncomingMessage, res: ServerResponse, next: ()
       case "/api/data":
         return sendJson(res, 200, await readAll());
       case "/api/data/state":
-        if (req.method !== "PUT") return sendJson(res, 405, { error: "Use PUT" });
-        await writeState(JSON.parse((await readBody(req)).toString()));
+        if (wrongMethod(req, res, "PUT")) return;
+        await writeState(await readJson(req));
         return sendJson(res, 200, { ok: true });
       case "/api/data/state/backup":
         // The browser's copy with API keys included, for the home-folder backup.
-        if (req.method !== "PUT") return sendJson(res, 405, { error: "Use PUT" });
-        await writeBackup(JSON.parse((await readBody(req)).toString()));
+        if (wrongMethod(req, res, "PUT")) return;
+        await writeBackup(await readJson(req));
         return sendJson(res, 200, { ok: true });
       case "/api/proxy":
         return await proxy(req, res, url);
@@ -434,7 +488,7 @@ export async function handle(req: IncomingMessage, res: ServerResponse, next: ()
         return sendJson(res, 200, { dir, models });
       }
       case "/api/local/ensure": {
-        const options = JSON.parse((await readBody(req)).toString() || "{}") as EnsureRequest;
+        const options = await readJson<EnsureRequest>(req, {});
         if (!options.model) return sendJson(res, 400, { error: "No model given" });
         const { server, loadMs } = await ensureLocal(options);
         const header = await readHeader(server.model, (await stat(server.model)).size).catch(() => undefined);
@@ -455,8 +509,8 @@ export async function handle(req: IncomingMessage, res: ServerResponse, next: ()
           return sendJson(res, 400, { error: `Cannot open that folder: ${(error as NodeJS.ErrnoException).code ?? (error as Error).message}` });
         }
       case "/api/fs/mkdir": {
-        if (req.method !== "POST") return sendJson(res, 405, { error: "Use POST" });
-        const { parent, name } = JSON.parse((await readBody(req)).toString() || "{}") as { parent?: string; name?: string };
+        if (wrongMethod(req, res, "POST")) return;
+        const { parent, name } = await readJson<{ parent?: string; name?: string }>(req, {});
         const clean = name?.trim() ?? "";
         if (!parent || !clean || clean === "." || clean === ".." || /[/\\\0]/.test(clean)) {
           return sendJson(res, 400, { error: "That isn't a valid folder name" });
@@ -471,14 +525,16 @@ export async function handle(req: IncomingMessage, res: ServerResponse, next: ()
         return sendJson(res, 200, { path });
       }
       case "/api/pi/run": {
-        if (req.method !== "POST") return sendJson(res, 405, { error: "Use POST" });
-        const body = JSON.parse((await readBody(req)).toString() || "{}") as PiRequest;
+        if (wrongMethod(req, res, "POST")) return;
+        const body = await readJson<PiRequest>(req, {});
         if (!isSafeId(body.conversationId)) return sendJson(res, 400, { error: "Bad chat id" });
         if (!body.cwd?.trim()) return sendJson(res, 400, { error: "pi needs a working folder. Set one in the harness panel." });
         const { endpoint, initial } = await piEndpoint(body);
         await runPi(body, endpoint, res, initial);
         return;
       }
+      case "/api/presence":
+        return presence(res);
       case "/api/system":
         return sendJson(res, 200, await systemStats());
       case "/api/local/status":
@@ -547,6 +603,7 @@ export async function appStatus(restartPending: string | null) {
 export function stopAll() {
   stopAllPi();
   stopLocal();
+  stopVoice();
 }
 
 process.on("exit", stopAll);

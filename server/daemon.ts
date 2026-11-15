@@ -2,8 +2,10 @@
 // nothing here watches files, so editing server/ (as pi may, when its working
 // folder is this repo) never stops a reply. Changes load on Restart.
 import { createServer } from "node:http";
-import { appRestarted, appStatus, handle, sendJson, stopAll } from "./api.ts";
+import { appRestarted, appStatus, handle, sendJson, stopAll, wrongMethod } from "./api.ts";
 import { whenPiIdle } from "./pi.ts";
+import { upgradeVoice } from "./voice.ts";
+import type { Socket } from "node:net";
 
 // server/dev.ts starts the daemon again when it exits with this code.
 const RESTART_DAEMON = 75;
@@ -33,7 +35,7 @@ const server = createServer(async (req, res) => {
   const url = new URL(req.url ?? "/", "http://localhost");
   if (url.pathname === "/api/status") return sendJson(res, 200, await appStatus(restartPending));
   if (url.pathname === "/api/restart") {
-    if (req.method !== "POST") return sendJson(res, 405, { error: "Use POST" });
+    if (wrongMethod(req, res, "POST")) return;
     const target = url.searchParams.get("target") === "app" ? "app" : "daemon";
     // "idle" waits until no chat is replying, so a chat can restart the app without cutting itself off.
     if (url.searchParams.get("when") === "idle") {
@@ -50,6 +52,9 @@ const server = createServer(async (req, res) => {
   }
   void handle(req, res, () => sendJson(res, 404, { error: "Not found" }));
 });
+
+// A voice chat's session is a websocket, joined straight to the voice server.
+server.on("upgrade", (req, socket: Socket, head: Buffer) => void upgradeVoice(req, socket, head));
 
 // pi reuses idle connections between model requests, which can be a long tool call apart.
 // Node closes them after 5s by default, and pi's next request on one fails, so keep them open.

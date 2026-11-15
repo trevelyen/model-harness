@@ -5,3 +5,6 @@ dist
 models
 data
 cmd.txt
+# The voice server's Python environments, built by uv on first use.
+.venv
+__pycache__

@@ -4,6 +4,7 @@ import type { ModelInfo } from "../adapters/types";
 import { getState, setState, useStore, type Provider } from "../state/store";
 import { CheckIcon, ChevronDownIcon, SearchIcon } from "./Icons";
 import { ProgressRing } from "./ProgressRing";
+import { useDismiss } from "../lib/useDismiss";
 
 type Listing = { state: "loading" } | { state: "ok"; models: ModelInfo[] } | { state: "error"; message: string };
 
@@ -132,17 +133,7 @@ export function ModelPicker() {
   const { listings, rates } = useListings(providers, open);
   const ref = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    if (!open) return;
-    const close = (e: MouseEvent) => !ref.current?.contains(e.target as Node) && setOpen(false);
-    const escape = (e: KeyboardEvent) => e.key === "Escape" && setOpen(false);
-    document.addEventListener("mousedown", close);
-    document.addEventListener("keydown", escape);
-    return () => {
-      document.removeEventListener("mousedown", close);
-      document.removeEventListener("keydown", escape);
-    };
-  }, [open]);
+  useDismiss(ref, open, () => setOpen(false));
 
   const q = query.trim().toLowerCase();
   const sections = useMemo(

@@ -147,14 +147,14 @@ select:focus-visible { outline: none; border-color: var(--border-strong); }
   background: var(--elev);
   border: 1px solid var(--border);
   font-weight: 500;
-  font-size: 14px;
+  font-size: 13px;
   transition: transform 0.2s var(--ease), box-shadow 0.2s var(--ease), border-color 0.2s;
 }
 .new-chat:hover { border-color: var(--border-strong); box-shadow: var(--shadow-md); transform: translateY(-1px); }
 .new-chat:active { transform: translateY(0); }
 .new-buttons { display: grid; gap: 8px; }
 .new-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-.new-grid .new-chat { min-width: 0; padding: 9px 10px; gap: 6px; font-size: 13px; }
+.new-grid .new-chat { min-width: 0; padding: 9px 10px; gap: 6px; }
 .new-grid .new-chat > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .history { flex: 1; overflow-y: auto; padding: 6px 8px 12px; }
@@ -166,12 +166,12 @@ select:focus-visible { outline: none; border-color: var(--border-strong); }
 .history-item.is-active { background: var(--active); }
 .history-link {
   flex: 1; min-width: 0; text-align: left;
-  padding: 7px 10px; font-size: 14px; color: var(--text-soft);
+  padding: 7px 10px; font-size: 13px; color: var(--text-soft);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .history-item.is-active .history-link { color: var(--text); }
 /* A staff agent, indented under its parent chat with a short rule leading in. */
-.history-item.is-child .history-link { padding-left: 30px; font-size: 13px; color: var(--muted); }
+.history-item.is-child .history-link { padding-left: 30px; color: var(--muted); }
 .history-item.is-child::before {
   content: ""; position: absolute; left: 16px; top: 50%; width: 8px; border-top: 1px solid var(--border-strong);
 }
@@ -188,7 +188,7 @@ select:focus-visible { outline: none; border-color: var(--border-strong); }
 .sidebar-settings {
   display: flex; align-items: center; gap: 9px;
   margin: 8px; padding: 10px 12px;
-  border-radius: 10px; color: var(--text-soft); font-size: 14px;
+  border-radius: 10px; color: var(--text-soft); font-size: 13px;
   transition: background 0.15s, color 0.15s;
 }
 .sidebar-settings:hover { background: var(--hover); color: var(--text); }
@@ -494,7 +494,7 @@ select:focus-visible { outline: none; border-color: var(--border-strong); }
 .send:hover:not(:disabled) { transform: scale(1.06); }
 .send:active:not(:disabled) { transform: scale(0.95); }
 .send:disabled { opacity: 0.2; }
-/* Voice chat (mock) */
+/* Voice chat */
 
 .voice-orb {
   width: 96px; height: 96px; margin: 0 auto 22px; border-radius: 50%;
@@ -520,12 +520,22 @@ select:focus-visible { outline: none; border-color: var(--border-strong); }
 .voice-meter { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--muted); white-space: nowrap; min-width: 0; }
 .voice-meter span { overflow: hidden; text-overflow: ellipsis; }
 .voice-meter b { display: flex; align-items: center; gap: 2px; height: 18px; }
-.voice-meter i { width: 3px; height: 4px; border-radius: 2px; background: var(--border-strong); transition: background 0.3s; }
-.voice-meter.is-live i { background: var(--text-soft); animation: level 0.9s ease-in-out infinite alternate; }
-.voice-meter.is-live:not(.is-speaking) i { animation-duration: 2.4s; }
-.voice-meter.is-speaking i { background: var(--accent); }
-@keyframes level { 0% { height: 4px; } 40% { height: 16px; } 70% { height: 7px; } 100% { height: 13px; } }
-.voice-status { font-size: 12.5px; color: var(--muted); padding: 0 6px; }
+/* Heights are set every frame from the live audio level. */
+.voice-meter i { width: 3px; height: 4px; border-radius: 2px; background: var(--border-strong); transition: background 0.3s, height 0.06s linear; }
+.voice-meter b.is-active i { background: var(--text-soft); }
+.voice-meter + .voice-meter b.is-active i { background: var(--accent); }
+.voice-status { font-size: 12.5px; color: var(--muted); padding: 0 6px; max-width: 40%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* Progress and errors, floating above the composer so the page doesn't move. */
+.voice-notice {
+  position: absolute; left: 50%; bottom: calc(100% + 10px); z-index: 2;
+  width: max-content; max-width: calc(100% - 32px); margin: 0; padding: 5px 12px;
+  border-radius: 999px; background: var(--elev); border: 1px solid var(--border); box-shadow: var(--shadow-md);
+  text-align: center; font-size: 13px; color: var(--muted);
+  opacity: 0; transform: translate(-50%, 6px); pointer-events: none;
+  transition: opacity 0.35s ease, transform 0.45s var(--ease), color 0.3s;
+}
+.voice-notice.is-visible { opacity: 1; transform: translate(-50%, 0); }
+.voice-notice.is-error { color: var(--danger); }
 .voice-start {
   display: grid; place-items: center; flex-shrink: 0;
   width: 36px; height: 36px; border-radius: 50%;
@@ -535,9 +545,11 @@ select:focus-visible { outline: none; border-color: var(--border-strong); }
 .voice-start:hover { transform: scale(1.06); }
 .voice-start:active { transform: scale(0.95); }
 .voice-start.is-live { background: var(--danger); }
+.voice-start:disabled { opacity: 0.35; transform: none; cursor: default; }
+.voice-bar .think-toggle:disabled { opacity: 0.6; cursor: default; }
 
 
-.voice-settings { display: grid; gap: 12px; }
+.voice-settings { display: grid; gap: 12px; max-height: min(60vh, 520px); overflow-y: auto; margin-right: -8px; padding-right: 8px; }
 .voice-settings .composer-sheet-title { margin: 0; }
 .voice-services { display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px; }
 .voice-services button {
@@ -551,11 +563,28 @@ select:focus-visible { outline: none; border-color: var(--border-strong); }
 .voice-services small { font-size: 11.5px; color: var(--muted); line-height: 1.35; }
 .voice-field { display: grid; grid-template-columns: 170px 1fr auto; align-items: center; gap: 10px; font-size: 13px; color: var(--text-soft); }
 .voice-field select { padding: 6px 8px; border-radius: 9px; border: 1px solid var(--border); background: var(--bg); color: var(--text); font: inherit; }
-.voice-field input[type="range"] { accent-color: var(--accent); }
 .voice-field em { font-style: normal; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
 .voice-checks { display: flex; flex-wrap: wrap; gap: 16px; font-size: 13px; color: var(--text-soft); }
-.voice-checks label { display: flex; align-items: center; gap: 6px; }
-.voice-checks input { accent-color: var(--accent); }
+.voice-checks label { display: flex; align-items: center; gap: 8px; cursor: pointer; }
+.voice-field.is-voice { align-items: start; }
+.voice-field.is-voice > span { padding-top: 7px; }
+.voice-picker { grid-column: span 2; display: grid; gap: 6px; min-width: 0; }
+.voice-picker-actions { display: flex; flex-wrap: wrap; gap: 4px; }
+.voice-picker-actions button {
+  height: 26px; padding: 0 10px; border-radius: 999px; font-size: 12.5px;
+  color: var(--text-soft); background: var(--hover);
+}
+.voice-picker-actions button:hover:not(:disabled) { color: var(--text); background: var(--active); }
+.voice-picker-actions button:disabled { opacity: 0.4; cursor: default; }
+.voice-picker-actions button.is-recording { color: var(--danger); }
+.voice-note { font-size: 12px; color: var(--danger); }
+.voice-field input:not([type]), .voice-field textarea {
+  grid-column: span 2; padding: 6px 8px; border-radius: 9px; border: 1px solid var(--border);
+  background: var(--bg); color: var(--text); font: inherit; outline: 0; resize: vertical;
+}
+.voice-field input:not([type]):focus, .voice-field textarea:focus { border-color: var(--border-strong); }
+.voice-field.is-text { grid-template-columns: 1fr; }
+.voice-field.is-text textarea { grid-column: auto; line-height: 1.5; }
 @media (max-width: 600px) {
   .voice-services { grid-template-columns: 1fr; }
   .voice-field { grid-template-columns: 1fr auto; }
@@ -612,23 +641,71 @@ select:focus-visible { outline: none; border-color: var(--border-strong); }
   transition: border-color 0.15s, box-shadow 0.15s;
 }
 .field textarea { resize: vertical; line-height: 1.5; font-size: 14px; }
-.field input:focus, .field textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
-.field input[type="range"] { accent-color: var(--accent); width: 100%; margin: 8px 0 0; }
+.field input:not([type="range"]):focus, .field textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.field .range { margin-top: 4px; }
 .field label:has(.switch) { align-items: center; }
 
+/* The slider (Range.tsx): a thin track, filled with the accent up to the thumb (--fill). */
+.range {
+  -webkit-appearance: none; appearance: none;
+  width: 100%; height: 20px; margin: 0; background: none; cursor: pointer;
+}
+.range:disabled { opacity: 0.45; cursor: default; }
+.range:focus-visible { outline: none; }
+.range::-webkit-slider-runnable-track {
+  height: 4px; border-radius: 999px;
+  background: linear-gradient(to right, var(--accent) var(--fill), var(--active) var(--fill));
+}
+.range::-moz-range-track { height: 4px; border-radius: 999px; background: var(--active); }
+.range::-moz-range-progress { height: 4px; border-radius: 999px; background: var(--accent); }
+/* A white thumb ringed in the accent, like the track's fill, with a halo on hover and while dragging. */
+.range::-webkit-slider-thumb {
+  -webkit-appearance: none; appearance: none;
+  width: 16px; height: 16px; margin-top: -6px; border-radius: 50%;
+  border: 2px solid var(--accent); background: var(--elev);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.15), 0 0 0 0 var(--accent-soft);
+  transition: box-shadow 0.2s var(--ease), border-width 0.2s var(--ease);
+}
+.range::-moz-range-thumb {
+  box-sizing: border-box; width: 16px; height: 16px; border-radius: 50%;
+  border: 2px solid var(--accent); background: var(--elev);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.15), 0 0 0 0 var(--accent-soft);
+  transition: box-shadow 0.2s var(--ease), border-width 0.2s var(--ease);
+}
+.range:not(:disabled):hover::-webkit-slider-thumb { box-shadow: 0 1px 2px rgba(0, 0, 0, 0.15), 0 0 0 4px var(--accent-soft); }
+.range:not(:disabled):hover::-moz-range-thumb { box-shadow: 0 1px 2px rgba(0, 0, 0, 0.15), 0 0 0 4px var(--accent-soft); }
+.range:not(:disabled):active::-webkit-slider-thumb { border-width: 4px; box-shadow: 0 1px 2px rgba(0, 0, 0, 0.15), 0 0 0 6px var(--accent-soft); }
+.range:not(:disabled):active::-moz-range-thumb { border-width: 4px; box-shadow: 0 1px 2px rgba(0, 0, 0, 0.15), 0 0 0 6px var(--accent-soft); }
+/* Keyboard focus rings the thumb, not the whole input. */
+.range:focus-visible::-webkit-slider-thumb { box-shadow: 0 0 0 2px var(--elev), 0 0 0 4px var(--accent); }
+.range:focus-visible::-moz-range-thumb { box-shadow: 0 0 0 2px var(--elev), 0 0 0 4px var(--accent); }
+
+/* The on/off control (Switch.tsx). The knob stretches while pressed, toward where it's going. */
 .switch {
-  position: relative; flex-shrink: 0; width: 32px; height: 18px; border-radius: 999px;
-  background: var(--active); transition: background 0.2s;
+  position: relative; flex-shrink: 0; width: 34px; height: 20px; border-radius: 999px;
+  background: var(--active); box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.04);
+  transition: background 0.25s var(--ease), box-shadow 0.2s;
 }
+.switch:not(:disabled):hover { background: color-mix(in srgb, var(--text) 16%, transparent); }
+/* Knob drawn like the slider's thumb: a ring around a light centre. */
 .switch::after {
-  content: ""; position: absolute; top: 2px; left: 2px; width: 14px; height: 14px; border-radius: 50%;
-  background: #fff; box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25); transition: transform 0.2s var(--ease);
+  content: ""; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 999px;
+  box-sizing: border-box; border: 2px solid var(--muted); background: var(--elev);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.15);
+  transition: transform 0.3s var(--ease), width 0.2s var(--ease), border-color 0.25s;
 }
+.switch:not(:disabled):active::after { width: 20px; }
 .switch.is-on { background: var(--accent); }
-.switch.is-on::after { transform: translateX(14px); }
-.switch.is-small { width: 24px; height: 14px; }
-.switch.is-small::after { width: 10px; height: 10px; }
+.switch.is-on:not(:disabled):hover { background: color-mix(in srgb, var(--accent) 88%, var(--text)); }
+.switch.is-on::after { transform: translateX(14px); border-color: var(--accent); }
+.switch.is-on:not(:disabled):active::after { transform: translateX(10px); }
+.switch:disabled { opacity: 0.45; cursor: default; }
+.switch:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--elev), 0 0 0 4px var(--accent); }
+.switch.is-small { width: 26px; height: 16px; }
+.switch.is-small::after { width: 12px; height: 12px; }
+.switch.is-small:not(:disabled):active::after { width: 15px; }
 .switch.is-small.is-on::after { transform: translateX(10px); }
+.switch.is-small.is-on:not(:disabled):active::after { transform: translateX(7px); }
 .prompt-picker { display: flex; align-items: center; gap: 6px; }
 .prompt-menu {
   position: relative; flex: 1; min-width: 0; display: flex; align-items: center; height: 36px;
@@ -712,16 +789,87 @@ select:focus-visible { outline: none; border-color: var(--border-strong); }
 .is-dragging-resize { user-select: none; }
 .is-dragging-resize .settings-dialog * { pointer-events: none; }
 .is-dragging-resize .settings-dialog .resize-handle { pointer-events: auto; }
+/* A short question, like stopping the voice server. */
+.confirm-dialog { width: min(420px, 100%); height: auto; padding: 22px 22px 16px; gap: 10px; }
+.confirm-dialog h2 { margin: 0; font-size: 16px; letter-spacing: -0.01em; }
+.confirm-dialog p { margin: 0; font-size: 14px; line-height: 1.5; color: var(--text-soft); }
+.confirm-dialog .confirm-error { color: var(--danger); font-size: 13px; }
+.confirm-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-top: 8px; }
+.confirm-remember { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--muted); cursor: pointer; }
+.confirm-actions { display: flex; gap: 6px; margin-left: auto; }
 .dialog-head { display: flex; align-items: center; justify-content: space-between; padding: 16px 16px 16px 22px; border-bottom: 1px solid var(--border); }
 .dialog-head h2 { margin: 0; font-size: 16px; letter-spacing: -0.01em; }
 /* Settings has no header; its close button sits at the bottom of the left pane. */
 .dialog-close { margin-top: auto; flex-shrink: 0; }
-.general-settings { display: grid; gap: 4px; animation: rise 0.35s var(--ease); }
+.general-settings { display: grid; animation: rise 0.35s var(--ease); }
 .setting-row {
   display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;
-  padding: 10px 0; font-size: 14px; color: var(--text-soft);
+  padding: 14px 0; font-size: 14px; color: var(--text-soft);
 }
 .setting-row + .setting-row { border-top: 1px solid var(--border); }
+/* The pane's own padding is the space above the first row and below the last. */
+.general-settings > .setting-row:first-child { padding-top: 0; }
+.general-settings > .setting-row:last-child { padding-bottom: 0; }
+.general-settings > .test-result { margin-top: 10px; }
+.accent-setting { display: block; }
+.accent-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+/* Sits in the same pill as the segmented choices beside it, at the same 32px height. */
+.accent-swatches {
+  display: flex; align-items: center; justify-content: flex-end; gap: 6px; flex-wrap: wrap; margin-left: auto;
+  padding: 5px; border-radius: 999px; background: var(--hover);
+}
+.accent-swatch {
+  position: relative; width: 22px; height: 22px; border-radius: 50%;
+  background: var(--swatch); box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.12);
+  transition: transform 0.15s var(--ease), box-shadow 0.15s;
+}
+.accent-swatch:hover { transform: scale(1.1); }
+/* A ring cut inside the swatch, so it stays within the pill. */
+.accent-swatch.is-active { box-shadow: inset 0 0 0 2px var(--swatch, var(--border-strong)), inset 0 0 0 4px var(--elev); }
+/* The custom swatch: a rainbow until a colour of your own is picked, then that colour. */
+.accent-swatch.is-custom { background: conic-gradient(#f05d5d, #f0c25d, #5df07a, #5dc8f0, #8b5df0, #f05dc2, #f05d5d); }
+.accent-swatch.is-custom.is-picked { background: var(--swatch); }
+.accent-reset { padding: 0 6px 0 2px; font-size: 12.5px; color: var(--muted); }
+.accent-reset:hover { color: var(--text); }
+
+/* Opens under the swatches by growing its row from nothing. */
+.accent-drawer { display: grid; grid-template-rows: 0fr; opacity: 0; transition: grid-template-rows 0.3s var(--ease), opacity 0.2s; }
+.accent-drawer.is-open { grid-template-rows: 1fr; opacity: 1; }
+.accent-drawer > div { min-height: 0; overflow: hidden; }
+
+.color-picker {
+  display: grid; gap: 12px; margin-top: 12px; padding: 12px;
+  border: 1px solid var(--border); border-radius: 12px; background: var(--bg-soft);
+}
+.color-area {
+  position: relative; height: 150px; border-radius: 9px; cursor: crosshair; touch-action: none;
+  background: linear-gradient(to top, #000, transparent), linear-gradient(to right, #fff, var(--hue));
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.08);
+}
+.color-hue {
+  position: relative; height: 12px; border-radius: 999px; cursor: pointer; touch-action: none;
+  background: linear-gradient(to right, #f00, #ff0, #0f0, #0ff, #00f, #f0f, #f00);
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.08);
+}
+.color-thumb {
+  position: absolute; width: 16px; height: 16px; border-radius: 50%;
+  transform: translate(-50%, -50%); pointer-events: none;
+  background: var(--picked); border: 2px solid #fff;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.25), 0 2px 6px rgba(0, 0, 0, 0.3);
+}
+.color-thumb.is-hue { top: 50%; width: 18px; height: 18px; background: var(--hue); }
+.color-area:focus-visible .color-thumb, .color-hue:focus-visible .color-thumb { box-shadow: 0 0 0 3px var(--accent-soft), 0 2px 6px rgba(0, 0, 0, 0.3); }
+.color-fields { display: flex; align-items: center; gap: 10px; }
+.color-preview { width: 30px; height: 30px; border-radius: 8px; background: var(--picked); box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.12); flex-shrink: 0; }
+.color-hex {
+  display: flex; align-items: center; gap: 2px; flex: 1; height: 30px; padding: 0 10px;
+  border: 1px solid var(--border); border-radius: 8px; background: var(--bg);
+  font-family: var(--mono); font-size: 13px; color: var(--muted);
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.color-hex:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.color-hex input { flex: 1; min-width: 0; border: 0; outline: 0; background: none; font: inherit; color: var(--text); text-transform: lowercase; }
+
 .provider-list-heading { margin: 14px 10px 4px; font-size: 12px; font-weight: 500; color: var(--muted); }
 .segmented { display: inline-flex; padding: 3px; border-radius: 999px; background: var(--hover); }
 .segmented button {
@@ -745,7 +893,9 @@ select:focus-visible { outline: none; border-color: var(--border-strong); }
 .provider-tab:hover { background: var(--hover); color: var(--text); }
 .provider-tab.is-active { background: var(--active); color: var(--text); }
 .provider-tab.is-add { color: var(--muted); margin-top: 6px; }
-.provider-pane { padding: 20px 24px; overflow-y: auto; }
+/* Every settings view keeps room for the scrollbar, so switching views never shifts the content
+   sideways. The thin scrollbar is about 10px, so the right padding is that much less. */
+.provider-pane { padding: 20px 14px 20px 24px; overflow-y: auto; scrollbar-gutter: stable; }
 /* The views keep their own layer after rising in. Chrome otherwise redraws them
    when the animation ends, and the buttons visibly flicker. */
 .general-settings, .provider-editor, .adapter-grid { will-change: transform; }
@@ -782,7 +932,7 @@ select:focus-visible { outline: none; border-color: var(--border-strong); }
   .dialog-body { grid-template-columns: 1fr; grid-template-rows: auto 1fr; }
   .provider-list { border-right: 0; border-bottom: 1px solid var(--border); grid-auto-flow: column; grid-auto-columns: max-content; overflow-x: auto; }
   .provider-list-heading { display: none; }
-  .provider-pane { padding: 16px; }
+  .provider-pane { padding: 16px 6px 16px 16px; }
   .field-row { grid-template-columns: 1fr; }
 }
 
@@ -938,8 +1088,7 @@ select:focus-visible { outline: none; border-color: var(--border-strong); }
 /* The dialog is rounded 20px and buttons 10px, so a 10px inset keeps the corner buttons concentric. */
 .folder-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px; border-top: 1px solid var(--border); }
 .folder-actions { display: flex; gap: 6px; }
-.folder-hidden-toggle { display: flex; align-items: center; gap: 7px; font-size: 13px; color: var(--muted); cursor: pointer; }
-.folder-hidden-toggle input { accent-color: var(--accent); }
+.folder-hidden-toggle { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--muted); cursor: pointer; }
 .folder-input { display: flex; align-items: center; gap: 6px; }
 .folder-input input { flex: 1; min-width: 0; }
 

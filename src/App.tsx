@@ -106,6 +106,12 @@ export function App() {
               onSend={(t) => void send(t)}
               onStop={() => conversation && stop(conversation.id)}
               context={context}
+              settings={
+                <>
+                  <h3 className="composer-sheet-title">{conversation?.kind ?? "text"} settings</h3>
+                  <p className="composer-sheet-note">Settings for this type of chat will go here.</p>
+                </>
+              }
               reasoning={reasoningSupport && { support: reasoningSupport, choice: reasoningChoice, onChange: (next) => setReasoning(() => next) }}
               hint={hasModel ? (harnessName && harnessName !== "Default" ? `Harness: ${harnessName}` : undefined) : "Choose a model to start chatting."}
             />

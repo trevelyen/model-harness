@@ -416,6 +416,27 @@ button:disabled { cursor: default; }
   box-shadow: var(--shadow-md);
   transition: border-color 0.2s, box-shadow 0.3s var(--ease);
 }
+/* The cog's sheet sits behind the composer and slides up out of it. The outer
+   layer clips it, so while closed it hides behind the composer's top edge. */
+.composer-stack { position: relative; max-width: 760px; margin: 0 auto; }
+.composer-stack > .composer { position: relative; z-index: 1; }
+.composer-sheet {
+  position: absolute; left: 0; right: 0; bottom: calc(100% - 24px);
+  padding: 16px 14px 0; overflow: hidden; pointer-events: none;
+}
+.composer-sheet.is-open { pointer-events: auto; }
+.composer-sheet-inner {
+  padding: 14px 18px 38px;
+  background: var(--elev);
+  border: 1px solid var(--border);
+  border-radius: 18px 18px 0 0;
+  box-shadow: var(--shadow-md);
+  transform: translateY(100%); opacity: 0;
+  transition: transform 0.4s var(--ease), opacity 0.25s;
+}
+.composer-sheet.is-open .composer-sheet-inner { transform: none; opacity: 1; }
+.composer-sheet-title { margin: 0 0 4px; font-size: 13px; font-weight: 600; text-transform: capitalize; }
+.composer-sheet-note { margin: 0; font-size: 13px; color: var(--muted); }
 .composer:focus-within { border-color: var(--border-strong); box-shadow: var(--shadow-lg); }
 .composer textarea {
   resize: none; border: 0; outline: 0; background: none;
@@ -424,7 +445,7 @@ button:disabled { cursor: default; }
 /* Three columns so the context bar sits in the middle whatever is either side of it.
    When space runs out the bar shrinks, never the Think controls. */
 .composer-bar { display: grid; grid-template-columns: 1fr minmax(0, auto) 1fr; align-items: center; gap: 8px; margin-left: -8px; }
-.composer-bar-start { display: flex; align-items: center; }
+.composer-bar-start { display: flex; align-items: center; gap: 4px; }
 .composer-bar-end { display: flex; align-items: center; justify-content: flex-end; gap: 4px; }
 
 .context-ring { display: flex; align-items: center; gap: 6px; height: 36px; padding: 0 7px; cursor: default; }

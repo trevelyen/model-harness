@@ -1,7 +1,7 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { Effort, ReasoningSupport } from "../adapters/types";
 import type { ReasoningChoice } from "../state/store";
-import { ArrowUpIcon, BrainIcon, StopIcon } from "./Icons";
+import { ArrowUpIcon, BrainIcon, SettingsIcon, StopIcon } from "./Icons";
 
 const EFFORTS: { value: Effort; label: string; budget: string; native: string }[] = [
   { value: "low", label: "Low", budget: "Thinks for up to about 1,000 tokens", native: "Brief thinking" },
@@ -83,6 +83,7 @@ export function Composer({
   hint,
   reasoning,
   context,
+  settings,
 }: {
   busy: boolean;
   onSend: (text: string) => void;
@@ -92,9 +93,25 @@ export function Composer({
   reasoning?: { support: ReasoningSupport; choice: ReasoningChoice; onChange: (next: ReasoningChoice) => void };
   /** Tokens the chat takes up, the backend's limit, and the most the model can handle. */
   context?: { used: number; limit: number; max: number };
+  /** What the cog's sheet shows. No cog without it. */
+  settings?: ReactNode;
 }) {
   const [text, setText] = useState("");
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const ref = useRef<HTMLTextAreaElement>(null);
+  const stackRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!settingsOpen) return;
+    const close = (e: MouseEvent) => !stackRef.current?.contains(e.target as Node) && setSettingsOpen(false);
+    const escape = (e: KeyboardEvent) => e.key === "Escape" && setSettingsOpen(false);
+    document.addEventListener("mousedown", close);
+    document.addEventListener("keydown", escape);
+    return () => {
+      document.removeEventListener("mousedown", close);
+      document.removeEventListener("keydown", escape);
+    };
+  }, [settingsOpen]);
 
   useEffect(() => {
     const el = ref.current;
@@ -114,37 +131,58 @@ export function Composer({
 
   return (
     <div className="composer-wrap">
-      <form className="composer" onSubmit={(e) => { e.preventDefault(); submit(); }}>
-        <textarea
-          ref={ref}
-          rows={1}
-          value={text}
-          placeholder="Message"
-          onChange={(e) => setText(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
-              e.preventDefault();
-              submit();
-            }
-          }}
-        />
-        <div className="composer-bar">
-          <div className="composer-bar-start">{reasoning && <ReasoningControls {...reasoning} />}</div>
-          <span />
-          <div className="composer-bar-end">
-            {context && <ContextRing {...context} />}
-            {busy ? (
-              <button type="button" className="send is-stop" aria-label="Stop" onClick={onStop}>
-                <StopIcon size={20} />
-              </button>
-            ) : (
-              <button type="submit" className="send" aria-label="Send" disabled={!text.trim()}>
-                <ArrowUpIcon size={18} />
-              </button>
-            )}
+      <div className="composer-stack" ref={stackRef}>
+        {settings && (
+          <div className={`composer-sheet ${settingsOpen ? "is-open" : ""}`} aria-hidden={!settingsOpen} inert={!settingsOpen}>
+            <div className="composer-sheet-inner">{settings}</div>
           </div>
-        </div>
-      </form>
+        )}
+        <form className="composer" onSubmit={(e) => { e.preventDefault(); submit(); }}>
+          <textarea
+            ref={ref}
+            rows={1}
+            value={text}
+            placeholder="Message"
+            onChange={(e) => setText(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
+                e.preventDefault();
+                submit();
+              }
+            }}
+          />
+          <div className="composer-bar">
+            <div className="composer-bar-start">
+              {settings && (
+                <button
+                  type="button"
+                  className={`icon-button ${settingsOpen ? "is-active" : ""}`}
+                  aria-label="Chat type settings"
+                  aria-expanded={settingsOpen}
+                  title="Settings for this chat type"
+                  onClick={() => setSettingsOpen((o) => !o)}
+                >
+                  <SettingsIcon size={16} />
+                </button>
+              )}
+              {reasoning && <ReasoningControls {...reasoning} />}
+            </div>
+            <span />
+            <div className="composer-bar-end">
+              {context && <ContextRing {...context} />}
+              {busy ? (
+                <button type="button" className="send is-stop" aria-label="Stop" onClick={onStop}>
+                  <StopIcon size={20} />
+                </button>
+              ) : (
+                <button type="submit" className="send" aria-label="Send" disabled={!text.trim()}>
+                  <ArrowUpIcon size={18} />
+                </button>
+              )}
+            </div>
+          </div>
+        </form>
+      </div>
       {hint && <p className="composer-hint">{hint}</p>}
     </div>
   );

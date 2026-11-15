@@ -60,10 +60,30 @@ export function Sidebar({ open, onSettings, onNavigate }: { open: boolean; onSet
           <Logo size={24} />
           <span>Model Harness</span>
         </div>
-        <button className="new-chat" onClick={() => { newConversation(); onNavigate(); }}>
-          <PlusIcon size={16} />
-          New chat
-        </button>
+        <div className="new-buttons">
+          <button className="new-chat" onClick={() => { newConversation(); onNavigate(); }}>
+            <PlusIcon size={16} />
+            Text
+          </button>
+          <div className="new-grid">
+            <button className="new-chat" onClick={() => { newConversation(); onNavigate(); }}>
+              <PlusIcon size={16} />
+              <span>Voice</span>
+            </button>
+            <button className="new-chat" onClick={() => { newConversation(); onNavigate(); }}>
+              <PlusIcon size={16} />
+              <span>Sound</span>
+            </button>
+            <button className="new-chat" onClick={() => { newConversation(); onNavigate(); }}>
+              <PlusIcon size={16} />
+              <span>Image</span>
+            </button>
+            <button className="new-chat" onClick={() => { newConversation(); onNavigate(); }}>
+              <PlusIcon size={16} />
+              <span>Video</span>
+            </button>
+          </div>
+        </div>
       </div>
       <nav className="history">
         {conversations.length === 0 && <p className="history-empty">Your chats will show up here.</p>}

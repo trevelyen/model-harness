@@ -150,6 +150,10 @@ button:disabled { cursor: default; }
 }
 .new-chat:hover { border-color: var(--border-strong); box-shadow: var(--shadow-md); transform: translateY(-1px); }
 .new-chat:active { transform: translateY(0); }
+.new-buttons { display: grid; gap: 8px; }
+.new-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.new-grid .new-chat { min-width: 0; padding: 9px 10px; gap: 6px; font-size: 13px; }
+.new-grid .new-chat > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .history { flex: 1; overflow-y: auto; padding: 6px 8px 12px; }
 .history h3 { margin: 16px 10px 6px; font-size: 12px; font-weight: 500; color: var(--muted); }

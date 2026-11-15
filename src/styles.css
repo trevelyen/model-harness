@@ -541,7 +541,6 @@ select:focus-visible { outline: none; border-color: var(--border-strong); }
 .voice-start:active { transform: scale(0.95); }
 .voice-start.is-live { background: var(--danger); }
 .voice-start:disabled { opacity: 0.35; transform: none; cursor: default; }
-.voice-bar .think-toggle:disabled { opacity: 0.6; cursor: default; }
 
 
 .voice-settings { display: grid; gap: 12px; max-height: min(60vh, 520px); overflow-y: auto; margin-right: -8px; padding-right: 8px; }

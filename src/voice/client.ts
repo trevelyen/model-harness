@@ -68,14 +68,18 @@ export async function voiceLlm(provider: { adapter: string; settings: Record<str
 const MICROPHONE = { audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true } };
 const CLIP_RATE = 24000;
 
-/** A capture node on `context`, fed by `source`. A node that leads nowhere isn't always run, so it is tied to the output through silence. */
-async function capture(context: AudioContext, source: AudioNode, onBlock: (block: Float32Array) => void) {
+/** A capture node on `context`, for a source to feed. A node that leads nowhere isn't always run, so it is tied to the output through silence. */
+async function capture(context: AudioContext, onBlock: (block: Float32Array) => void) {
   await context.audioWorklet.addModule("/voice/capture.js");
   const node = new AudioWorkletNode(context, "capture", { numberOfInputs: 1, numberOfOutputs: 1 });
   node.port.onmessage = (event) => onBlock(event.data);
   const mute = new GainNode(context, { gain: 0 });
-  source.connect(node).connect(mute).connect(context.destination);
+  node.connect(mute).connect(context.destination);
+  return node;
 }
+
+const micError = (error: unknown) =>
+  new Error((error as Error).name === "NotAllowedError" ? "The microphone was not allowed." : (error as Error).message);
 
 /** Silence in place of the microphone: a duplex service needs audio all the time. */
 function silence(context: AudioContext) {
@@ -118,10 +122,20 @@ export class VoiceSession {
   private ws: WebSocket | null = null;
   private playback: AudioWorkletNode | null = null;
   private micLevel: AnalyserNode | null = null;
+  private captureNode: AudioWorkletNode | null = null;
+  // What feeds the capture node: the microphone, or silence until there is one.
+  private source: AudioNode | null = null;
+  private micSource: MediaStreamAudioSourceNode | null = null;
+  private silent: ConstantSourceNode | null = null;
   private modelLevel: AnalyserNode | null = null;
   private samples = new Float32Array(1024);
   private closed = false;
   isReady = false;
+
+  /** Whether the service hears the microphone, which a refused request turns off. */
+  get micOn() {
+    return this.mic;
+  }
 
   constructor(
     private service: VoiceService,
@@ -160,7 +174,7 @@ export class VoiceSession {
       ws.onclose = () => this.stop(this.isReady ? "" : "The voice server closed the connection.");
       this.on.status("Connecting");
     } catch (error) {
-      this.stop((error as Error).name === "NotAllowedError" ? "The microphone was not allowed." : (error as Error).message);
+      this.stop(micError(error).message);
     }
   }
 
@@ -188,16 +202,52 @@ export class VoiceSession {
       }
       case "ready": {
         this.isReady = true;
-        const source = this.stream ? this.context.createMediaStreamSource(this.stream) : silence(this.context);
-        await capture(this.context, source, (block) => {
+        this.captureNode = await capture(this.context, (block) => {
           if (this.ws?.readyState === WebSocket.OPEN) this.ws.send(block);
         });
         this.micLevel = new AnalyserNode(this.context, { fftSize: 1024 });
-        source.connect(this.micLevel);
-        this.on.status("");
+        let refused = "";
+        try {
+          await this.setMic(this.mic);
+        } catch (error) {
+          // Switched on while starting, then refused: carry on with silence.
+          refused = (error as Error).message;
+        }
+        this.on.status(refused, !!refused);
         return this.on.ready();
       }
     }
+  }
+
+  /**
+   * Turns the microphone on or off, mid-session too. Off, the service hears
+   * silence. Turning it on in a session that started without it asks the
+   * browser for the microphone, and throws if that's refused.
+   */
+  async setMic(on: boolean) {
+    this.mic = on;
+    if (!this.isReady || this.closed || !this.captureNode || !this.micLevel) return; // wired once the session is ready
+    if (on && !this.stream) {
+      let stream: MediaStream;
+      try {
+        stream = await navigator.mediaDevices.getUserMedia(MICROPHONE);
+      } catch (error) {
+        this.mic = false;
+        throw micError(error);
+      }
+      if (this.closed) return close(this.context, stream);
+      this.stream = stream;
+    }
+    // A muted microphone track plays silence, so once there is one it stays connected.
+    this.stream?.getAudioTracks().forEach((track) => (track.enabled = on));
+    const next = this.stream
+      ? (this.micSource ??= this.context.createMediaStreamSource(this.stream))
+      : (this.silent ??= silence(this.context));
+    if (next === this.source) return;
+    this.source?.disconnect();
+    next.connect(this.captureNode);
+    next.connect(this.micLevel);
+    this.source = next;
   }
 
   /** A typed line. Cascade takes it as text; other services hear it spoken. */
@@ -232,11 +282,12 @@ export async function recordClip(onSeconds: (seconds: number) => void) {
   let samples = 0;
   try {
     stream = await navigator.mediaDevices.getUserMedia(MICROPHONE);
-    await capture(context, context.createMediaStreamSource(stream), (block) => {
+    const node = await capture(context, (block) => {
       blocks.push(block);
       samples += block.length;
       onSeconds(samples / CLIP_RATE);
     });
+    context.createMediaStreamSource(stream).connect(node);
   } catch (error) {
     close(context, stream);
     throw error;

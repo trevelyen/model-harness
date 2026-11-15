@@ -421,6 +421,7 @@ export function VoiceChat({ conversation }: { conversation: Conversation }) {
       status: (text, error) => setStatus({ text, error }),
       ready: () => {
         startedAt.current = Date.now();
+        if (!next.micOn) updateVoice({ mic: false });
         setPhase("live");
         for (const text of waiting.current.splice(0)) {
           if (next.say(text)) userLine(text, true);
@@ -495,9 +496,15 @@ export function VoiceChat({ conversation }: { conversation: Conversation }) {
                 type="button"
                 className={`think-toggle ${mic ? "is-on" : ""}`}
                 aria-pressed={mic}
-                disabled={phase !== "idle"}
                 title={mic ? "It hears your microphone and what you type." : "It hears only what you type."}
-                onClick={() => updateVoice((v) => ({ mic: !v.mic }))}
+                onClick={() => {
+                  const on = !mic;
+                  updateVoice({ mic: on });
+                  session.current?.setMic(on).catch((e: Error) => {
+                    updateVoice({ mic: false });
+                    setStatus({ text: e.message, error: true });
+                  });
+                }}
               >
                 {mic ? <MicIcon size={15} /> : <MicOffIcon size={15} />}
                 {mic ? "Mic on" : "Mic off"}

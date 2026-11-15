@@ -50,6 +50,8 @@ export interface ReasoningChoice {
   effort: Effort;
 }
 
+export type ConversationKind = "text" | "voice" | "sound" | "image" | "video";
+
 export interface Conversation {
   id: string;
   title: string;
@@ -62,6 +64,8 @@ export interface Conversation {
   parentId?: string;
   /** The staff slug, set by the parent agent when it created this chat. */
   staffName?: string;
+  /** What the chat makes. Absent on chats saved before kinds existed, which are text. */
+  kind?: ConversationKind;
 }
 
 export interface Selection {

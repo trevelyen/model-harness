@@ -2,7 +2,7 @@ import { getModelAdapter } from "../adapters/registry";
 import type { ChatMessage, FileChange } from "../adapters/types";
 import { directHarness } from "../harnesses/direct";
 import { getHarnessAdapter } from "../harnesses/registry";
-import { getState, setState, uid, updateConversation, updateMessage, type Conversation, type Message, type MessagePart } from "./store";
+import { getState, setState, uid, updateConversation, updateMessage, type Conversation, type ConversationKind, type Message, type MessagePart } from "./store";
 
 // A fetch through Vite's proxy fails like this when a restart kills or restarts it.
 const PROXY_DOWN = /failed to fetch|networkerror|load failed/i;
@@ -18,7 +18,7 @@ export function stop(conversationId: string) {
   running.get(conversationId)?.abort();
 }
 
-export function newConversation(title = "New chat") {
+export function newConversation(kind: ConversationKind = "text") {
   const s = getState();
   const id = uid();
   const now = Date.now();
@@ -26,7 +26,7 @@ export function newConversation(title = "New chat") {
     ...st,
     activeId: id,
     conversations: [
-      { id, title, messages: [], harnessId: s.harnessId, reasoning: s.reasoning, createdAt: now, updatedAt: now },
+      { id, title: `New ${kind}`, kind, messages: [], harnessId: s.harnessId, reasoning: s.reasoning, createdAt: now, updatedAt: now },
       ...st.conversations,
     ],
   }));

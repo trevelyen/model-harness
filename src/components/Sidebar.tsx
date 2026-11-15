@@ -61,24 +61,24 @@ export function Sidebar({ open, onSettings, onNavigate }: { open: boolean; onSet
           <span>Model Harness</span>
         </div>
         <div className="new-buttons">
-          <button className="new-chat" onClick={() => { newConversation("New text"); onNavigate(); }}>
+          <button className="new-chat" onClick={() => { newConversation("text"); onNavigate(); }}>
             <PlusIcon size={16} />
             Text
           </button>
           <div className="new-grid">
-            <button className="new-chat" onClick={() => { newConversation("New voice"); onNavigate(); }}>
+            <button className="new-chat" onClick={() => { newConversation("voice"); onNavigate(); }}>
               <PlusIcon size={16} />
               <span>Voice</span>
             </button>
-            <button className="new-chat" onClick={() => { newConversation("New sound"); onNavigate(); }}>
+            <button className="new-chat" onClick={() => { newConversation("sound"); onNavigate(); }}>
               <PlusIcon size={16} />
               <span>Sound</span>
             </button>
-            <button className="new-chat" onClick={() => { newConversation("New image"); onNavigate(); }}>
+            <button className="new-chat" onClick={() => { newConversation("image"); onNavigate(); }}>
               <PlusIcon size={16} />
               <span>Image</span>
             </button>
-            <button className="new-chat" onClick={() => { newConversation("New video"); onNavigate(); }}>
+            <button className="new-chat" onClick={() => { newConversation("video"); onNavigate(); }}>
               <PlusIcon size={16} />
               <span>Video</span>
             </button>

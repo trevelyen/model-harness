@@ -18,7 +18,7 @@ export function stop(conversationId: string) {
   running.get(conversationId)?.abort();
 }
 
-export function newConversation() {
+export function newConversation(title = "New chat") {
   const s = getState();
   const id = uid();
   const now = Date.now();
@@ -26,7 +26,7 @@ export function newConversation() {
     ...st,
     activeId: id,
     conversations: [
-      { id, title: "New chat", messages: [], harnessId: s.harnessId, reasoning: s.reasoning, createdAt: now, updatedAt: now },
+      { id, title, messages: [], harnessId: s.harnessId, reasoning: s.reasoning, createdAt: now, updatedAt: now },
       ...st.conversations,
     ],
   }));

@@ -2,6 +2,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import { useStore } from "../state/store";
 import { errorText } from "../lib/http";
 import { stopVoiceServer } from "../voice/client";
+import { stopSoundServer } from "../sound/client";
 
 // Settings → Services: what the app has running, from the daemon's /api/status.
 
@@ -15,6 +16,9 @@ interface Status {
   voiceServer:
     | { state: "stopped" }
     | { state: "starting" | "running"; port: number; pid: number; startedAt: string; gpuMemory?: number; log?: string[] };
+  soundServer:
+    | { state: "stopped" }
+    | { state: "starting" | "running"; model: string; pid: number; startedAt: string; busy: boolean; gpuMemory?: number; log?: string[] };
   restartPending: string | null;
 }
 
@@ -46,7 +50,7 @@ function Service({ name, state, details, action, log, note }: {
         <span className="service-state">{state === "running" ? "Running" : state === "starting" ? "Starting" : "Stopped"}</span>
         {action}
       </div>
-      {details.some(Boolean) && <p className="service-details">{details.filter(Boolean).join(" · ")}</p>}
+      {details.some(Boolean) && <p className="service-details">{details.filter(Boolean).join(" - ")}</p>}
       {note && <p className="service-note">{note}</p>}
       {log && log.length > 0 && (
         <details className="service-log">
@@ -109,8 +113,13 @@ export function ServicesView() {
     await refresh();
   };
 
+  const stopSound = async () => {
+    await stopSoundServer();
+    await refresh();
+  };
+
   if (!status) return <div className="general-settings">{error && <p className="service-note">{error}</p>}</div>;
-  const { app, daemon, llamaServer: llama, voiceServer: voice, piRuns } = status;
+  const { app, daemon, llamaServer: llama, voiceServer: voice, soundServer: sound, piRuns } = status;
   const title = (id: string) => chats.find((c) => c.id === id)?.title ?? id;
 
   return (
@@ -161,6 +170,23 @@ export function ServicesView() {
         }
         action={voice.state !== "stopped" && <StopButton onStop={stopVoice} />}
         log={voice.state === "stopped" ? undefined : voice.log}
+      />
+      <Service
+        name="Sound model"
+        state={sound.state}
+        details={
+          sound.state === "stopped"
+            ? ["Starts with the next sound chat request"]
+            : [
+                sound.model,
+                sound.busy && "Making",
+                sound.gpuMemory ? `${gigabytes(sound.gpuMemory)} GPU` : undefined,
+                `PID ${sound.pid}`,
+                `Up ${uptime(sound.startedAt)}`,
+              ]
+        }
+        action={sound.state !== "stopped" && <StopButton onStop={stopSound} />}
+        log={sound.state === "stopped" ? undefined : sound.log}
       />
       <Service
         name="pi"

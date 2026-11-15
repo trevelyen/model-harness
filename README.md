@@ -148,6 +148,22 @@ How it fits together:
 - The page reaches it through `/api/voice/`, and the conversation runs over a websocket at `/api/voice/session`: your microphone in and the service's audio out, as raw audio at the service's sample rate. The audio worklets are `public/voice/`.
 - Voice clips are kept in `data/voice/voices/`. Only use voices you have the right to use.
 
+## Sound chats
+
+**Sound** in the sidebar starts a sound chat. Describe a style, pick **Song**, **Instrumental** or **Effect** and a length, and it makes a few takes to choose from. Songs take lyrics too, with `[verse]` and `[chorus]` tags. Each take plays in the chat and downloads as a file. The cog in the message box sets how many takes, the steps, a fixed seed and the file format.
+
+| Model | Makes | Licence |
+| ----- | ----- | ------- |
+| ACE-Step 1.5 | Songs and instrumentals, up to 10 minutes. The default for songs. | MIT |
+| YuE2-3B | Songs, picked in the cog's settings. Slower, and it decides the length from the lyrics. | CC BY-NC 4.0, non-commercial |
+| Stable Audio Open 1.0 | Effects and loops, up to 47 seconds | Stability AI Community Licence, free under US$1M revenue a year |
+
+How it fits together:
+
+- Each model is a Python worker in `sound/<model>/`, in an environment of its own that [uv](https://docs.astral.sh/uv/) builds the first time it's used. The daemon (`server/sound.ts`) starts one when a request needs it and runs one at a time, so picking a different model stops the last. Settings → Services shows it and can stop it.
+- The first request to each model downloads its weights: ACE-Step's to `sound/ace-step/checkpoints/` (about 10 GB), the others' to the Hugging Face cache. Stable Audio Open comes from an ungated copy of Stability's repo, so no Hugging Face login is needed.
+- Tracks are saved in `data/sound/<chat id>/` and deleted with their chat.
+
 ## Storage
 
 Chats, providers and harnesses are saved as JSON files in `data/`, which git ignores:
@@ -155,6 +171,7 @@ Chats, providers and harnesses are saved as JSON files in `data/`, which git ign
 - `data/state.json` holds providers, harnesses and the selected model.
 - `data/chats/<id>.json` holds one conversation each.
 - `data/pi/` holds the pi harness's config and sessions.
+- `data/sound/<id>/` holds a sound chat's tracks.
 
 The server writes them, so they survive browser changes, port changes and clearing site data. Set `MODEL_HARNESS_DATA` to keep them somewhere else. With no `data/` folder, the app starts with one Local GGUF provider pointed at `./models`.
 

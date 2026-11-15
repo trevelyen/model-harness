@@ -1,0 +1,28 @@
+# The environment YuE2 runs in, pinned to a commit of its GitHub main branch:
+# its low_vram mode, which lets it share the GPU, isn't in a tagged release yet.
+# `worker.py` runs here as a process of its own; uv builds this on first use.
+[project]
+name = "model-harness-yue"
+version = "0.1.0"
+description = "YuE2-3B, as a worker process of model-harness sound chats"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "yue2-infer @ git+https://github.com/multimodal-art-projection/YuE@1116bea76032bee5668e5f097294d082fa0b84f0",
+    "torch==2.10.0",
+    "soundfile>=0.13",
+]
+
+[tool.uv]
+package = false
+environments = [
+    "sys_platform == 'win32' and platform_machine == 'AMD64'",
+    "sys_platform == 'linux' and platform_machine == 'x86_64'",
+]
+
+[tool.uv.sources]
+torch = { index = "pytorch-cu128" }
+
+[[tool.uv.index]]
+name = "pytorch-cu128"
+url = "https://download.pytorch.org/whl/cu128"
+explicit = true

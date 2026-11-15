@@ -1,0 +1,34 @@
+# The environment ACE-Step 1.5 runs in, pinned to its v0.1.8 release. It needs
+# its own PyTorch build and transformers range, so `worker.py` runs here as a
+# process of its own. uv builds this the first time a sound chat uses it.
+[project]
+name = "model-harness-ace-step"
+version = "0.1.0"
+description = "ACE-Step 1.5, as a worker process of model-harness sound chats"
+# Python 3.11 is the one its flash-attention wheel is built for.
+requires-python = ">=3.11,<3.12"
+dependencies = [
+    "ace-step @ git+https://github.com/ace-step/ACE-Step-1.5@dce621408bee8c31b4fcf4811682eb9359e1bc94",
+    # Its own pyproject finds this by a local path, which uv doesn't follow from a git dependency.
+    "nano-vllm @ git+https://github.com/ace-step/ACE-Step-1.5@dce621408bee8c31b4fcf4811682eb9359e1bc94#subdirectory=acestep/third_parts/nano-vllm",
+    "soundfile>=0.13",
+]
+
+[tool.uv]
+package = false
+# Only built on Linux and Windows PCs with NVIDIA cards, like the app's llama-server.
+environments = [
+    "sys_platform == 'win32' and platform_machine == 'AMD64'",
+    "sys_platform == 'linux' and platform_machine == 'x86_64'",
+]
+
+# ACE-Step's own pyproject pins PyTorch to these indexes, which have to be named here too.
+[[tool.uv.index]]
+name = "pytorch-cu128"
+url = "https://download.pytorch.org/whl/cu128"
+explicit = true
+
+[[tool.uv.index]]
+name = "pytorch-cu130"
+url = "https://download.pytorch.org/whl/cu130"
+explicit = true

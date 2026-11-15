@@ -614,6 +614,10 @@ select:focus-visible { outline: none; border-color: var(--border-strong); }
 .sound-track.is-generating .sound-wave i { animation: making 1.4s ease-in-out infinite; }
 .sound-track.is-generating .sound-wave i.is-done { background: var(--accent-soft); }
 @keyframes making { 50% { transform: scaleY(2.2); } }
+.sound-error { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 12px; background: var(--hover); color: var(--text-soft); font-size: 13.5px; }
+.sound-error > svg { flex-shrink: 0; color: var(--danger); }
+.sound-error p { flex: 1; margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+a.icon-button { color: var(--muted); }
 .composer .sound-lyrics-input { border-top: 1px solid var(--border); padding-left: 8px; font-size: 13.5px; color: var(--text-soft); }
 .sound-length {
   height: 32px; padding: 0 8px; border-radius: 999px;
@@ -915,7 +919,7 @@ select:focus-visible { outline: none; border-color: var(--border-strong); }
 .service:last-child { border-bottom: 0; }
 .service-head { display: flex; align-items: center; gap: 9px; min-height: 30px; font-size: 14px; }
 .service-head strong { font-weight: 500; color: var(--text); }
-.service-state { font-size: 12.5px; color: var(--muted); }
+.service-state { font-weight: 500; color: var(--muted); }
 .service-action { margin-left: auto; }
 .service-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--border-strong); flex-shrink: 0; }
 .service-dot.is-running { background: var(--ok); box-shadow: 0 0 0 3px color-mix(in srgb, var(--ok) 18%, transparent); }

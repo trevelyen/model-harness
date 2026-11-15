@@ -14,6 +14,7 @@ import { piRuns, runPi, sendToRun, stopAllPi, type PiEndpoint, type PiRunRequest
 import { randomUUID } from "node:crypto";
 import { ensureVoice, stopVoice, voiceStatus, voiceTarget } from "./voice.ts";
 import { freePort, waitUntilAnswering } from "./net.ts";
+import { deleteChatSounds, handleMake, serveSound, SOUND_MODELS, soundStatus, stopSound } from "./sound.ts";
 
 const DROP_REQUEST_HEADERS = new Set([
   "host", "origin", "referer", "cookie", "connection", "content-length",
@@ -394,9 +395,10 @@ function presence(res: ServerResponse) {
 
 async function stopIfClosed() {
   if (openPages > 0 || !(await settingOn("stopOnClose"))) return;
-  if (local || voiceStatus().state === "running") console.log("No page open: stopping the models.");
+  if (local || voiceStatus().state === "running" || soundStatus().state !== "stopped") console.log("No page open: stopping the models.");
   stopLocal();
   stopVoice();
+  stopSound();
 }
 
 // Staff agent messages waiting for the page to run them in the child chat, by request id.
@@ -449,11 +451,22 @@ export async function handle(req: IncomingMessage, res: ServerResponse, next: ()
     if (url.pathname.startsWith("/api/voice/")) {
       return await forward(req, res, voiceTarget(await ensureVoice(), url.pathname, url.search));
     }
+    if (url.pathname === "/api/sound/models") return sendJson(res, 200, SOUND_MODELS);
+    if (url.pathname === "/api/sound/make") {
+      if (wrongMethod(req, res, "POST")) return;
+      return await handleMake(await readJson(req), res);
+    }
+    if (url.pathname === "/api/sound/stop") {
+      if (wrongMethod(req, res, "POST")) return;
+      stopSound();
+      return sendJson(res, 200, { ok: true });
+    }
+    if (url.pathname.startsWith("/api/sound/files/")) return await serveSound(req, res, url.pathname.slice("/api/sound/files/".length));
     if (url.pathname.startsWith("/api/data/chats/")) {
       const id = url.pathname.slice("/api/data/chats/".length);
       if (!isSafeId(id)) return sendJson(res, 400, { error: "Bad chat id" });
       if (req.method === "PUT") await writeChat(id, await readJson(req));
-      else if (req.method === "DELETE") await deleteChat(id);
+      else if (req.method === "DELETE") await Promise.all([deleteChat(id), deleteChatSounds(id)]);
       else return sendJson(res, 405, { error: "Use PUT or DELETE" });
       return sendJson(res, 200, { ok: true });
     }
@@ -557,7 +570,7 @@ export async function handle(req: IncomingMessage, res: ServerResponse, next: ()
 }
 
 // Files only a restart loads: the daemon's code, and what Vite reads at start.
-const DAEMON_FILES = ["server/api.ts", "server/daemon.ts", "server/data.ts", "server/gguf.ts", "server/net.ts", "server/pi.ts", "server/voice.ts"];
+const DAEMON_FILES = ["server/api.ts", "server/daemon.ts", "server/data.ts", "server/gguf.ts", "server/net.ts", "server/pi.ts", "server/sound.ts", "server/voice.ts"];
 const APP_FILES = ["vite.config.ts", "package.json"];
 const daemonStartedAt = Date.now();
 let appStartedAt = Number(process.env.APP_STARTED_AT) || daemonStartedAt;
@@ -614,7 +627,9 @@ async function gpuMemory(pids: number[]) {
 export async function appStatus(restartPending: string | null, detail = false) {
   const llama = local && local.process.exitCode === null ? local : null;
   const voice = voiceStatus();
-  const pids = [llama?.process.pid, voice.state === "stopped" ? undefined : voice.pid].filter((pid): pid is number => !!pid);
+  const sound = soundStatus();
+  const pids = [llama?.process.pid, voice.state === "stopped" ? undefined : voice.pid, sound.state === "stopped" ? undefined : sound.pid]
+    .filter((pid): pid is number => !!pid);
   const gpu = detail ? await gpuMemory(pids) : {};
   return {
     app: {
@@ -641,6 +656,7 @@ export async function appStatus(restartPending: string | null, detail = false) {
         }
       : { running: false },
     voiceServer: voice.state === "stopped" ? voice : detail ? { ...voice, gpuMemory: gpu[voice.pid!] } : { ...voice, log: undefined },
+    soundServer: sound.state === "stopped" ? sound : detail ? { ...sound, gpuMemory: gpu[sound.pid] } : { ...sound, log: undefined },
     restartPending,
   };
 }
@@ -650,6 +666,7 @@ export function stopAll() {
   stopAllPi();
   stopLocal();
   stopVoice();
+  stopSound();
 }
 
 process.on("exit", stopAll);

@@ -290,12 +290,12 @@ function VoiceThread({ messages }: { messages: Message[] }) {
           return m.role === "user" ? (
             <div key={m.id} className="message is-user">
               <div className="bubble">{m.content}</div>
-              {at && <span className="voice-time">{m.voice?.typed ? `Typed · ${at}` : at}</span>}
+              {at && <span className="voice-time">{m.voice?.typed ? `Typed - ${at}` : at}</span>}
             </div>
           ) : (
             <div key={m.id} className={`message voice-reply ${m.streaming ? "is-live" : ""}`}>
               <p>{m.content.trim()}</p>
-              {at && <span className="voice-time">{m.voice?.cutOff ? `Cut off · ${at}` : at}</span>}
+              {at && <span className="voice-time">{m.voice?.cutOff ? `Cut off - ${at}` : at}</span>}
             </div>
           );
         })}

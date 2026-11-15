@@ -35,6 +35,30 @@ export interface Message {
   finishedAt?: number;
   /** A voice chat's turn: seconds into its session, and whether it was typed or cut off. */
   voice?: { at: number; typed?: boolean; cutOff?: boolean };
+  /** A sound chat's turn: what was asked for, or the tracks made for it. */
+  sound?: SoundTurn;
+}
+
+export type SoundMode = "song" | "instrumental" | "effect";
+
+export interface SoundTrack {
+  /** Its file name in data/sound/<chat id>/. */
+  file: string;
+  seconds: number;
+  seed: number;
+}
+
+export interface SoundTurn {
+  mode: SoundMode;
+  /** Seconds asked for; 0 let the model choose. */
+  seconds: number;
+  /** The model's display name. */
+  model: string;
+  lyrics?: string;
+  /** A reply's tracks, and while it's being made, how many and how far along. */
+  tracks?: SoundTrack[];
+  takes?: number;
+  progress?: number;
 }
 
 export type MessagePart = { type: "text"; text: string } | ({ type: "tool" } & ToolEvent);
@@ -101,6 +125,21 @@ export interface State {
   stopOnClose: boolean;
   /** Voice chats: the service, each service's settings as changed in the sheet, and whether the mic is used. */
   voice: VoiceSettings;
+  sound: SoundSettings;
+}
+
+export interface SoundSettings {
+  mode: SoundMode;
+  /** Seconds for each mode, as last picked. 0 lets the model choose. */
+  seconds: Record<SoundMode, number>;
+  /** Which model makes songs. Instrumentals are ACE-Step's, effects Stable Audio Open's. */
+  songModel: "ace-step" | "yue";
+  takes: number;
+  /** Diffusion steps. Absent, the model's default. */
+  steps?: number;
+  /** A fixed seed, or absent for a new one each time. */
+  seed?: number;
+  format: "wav" | "flac";
 }
 
 export interface VoiceSettings {
@@ -140,6 +179,7 @@ const seed: State = {
   prompts: [],
   stopOnClose: false,
   voice: { service: "cascade", mic: true, values: {}, onLeave: "ask" },
+  sound: { mode: "song", seconds: { song: 0, instrumental: 60, effect: 6 }, songModel: "ace-step", takes: 2, format: "wav" },
 };
 
 /** Fixes data saved by earlier versions. */
@@ -194,7 +234,7 @@ function saveSecrets(providers: Provider[]) {
 // The settings saved to data/state.json: everything but the chats, which are saved one file each.
 const SETTINGS_KEYS = [
   "providers", "harnesses", "selection", "harnessId", "activeId", "reasoning", "contextBar",
-  "showGpuLoad", "accent", "hotReload", "prompts", "settingsSize", "voice", "stopOnClose",
+  "showGpuLoad", "accent", "hotReload", "prompts", "settingsSize", "voice", "sound", "stopOnClose",
 ] as const satisfies readonly (keyof State)[];
 
 function settingsOf(s: State) {
@@ -348,6 +388,11 @@ export function setReasoning(update: (r: ReasoningChoice) => ReasoningChoice) {
 
 export function updateConversation(id: string, update: (c: Conversation) => Conversation) {
   setState((s) => ({ ...s, conversations: s.conversations.map((c) => (c.id === id ? update(c) : c)) }));
+}
+
+/** Changes the sound chat settings. */
+export function updateSound(change: Partial<SoundSettings>) {
+  setState((s) => ({ ...s, sound: { ...s.sound, ...change } }));
 }
 
 /** Changes the voice chat settings: a patch, or a function of the current ones for a change that depends on them. */

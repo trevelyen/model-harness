@@ -8,3 +8,6 @@ cmd.txt
 # The voice server's Python environments, built by uv on first use.
 .venv
 __pycache__
+# ACE-Step's weights, downloaded on first use, and its timing notes.
+sound/*/checkpoints
+sound/*/.cache

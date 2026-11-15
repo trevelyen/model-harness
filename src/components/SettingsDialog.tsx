@@ -3,7 +3,8 @@ import { getModelAdapter, modelAdapters } from "../adapters/registry";
 import { saveNow, setState, uid, updateVoice, useStore, type Provider } from "../state/store";
 import { errorText } from "../lib/http";
 import { ColorPicker } from "./ColorPicker";
-import { CheckIcon, PlusIcon, RefreshIcon, ServerIcon, SettingsIcon, TrashIcon, XIcon, AlertIcon } from "./Icons";
+import { ActivityIcon, CheckIcon, PlusIcon, RefreshIcon, ServerIcon, SettingsIcon, TrashIcon, XIcon, AlertIcon } from "./Icons";
+import { ServicesView } from "./ServicesView";
 import { Modal } from "./Modal";
 import { Segmented } from "./Segmented";
 import { Field } from "./Field";
@@ -323,7 +324,7 @@ function useResize() {
 export function SettingsDialog({ onClose }: { onClose: () => void }) {
   const resize = useResize();
   const providers = useStore((s) => s.providers);
-  // "general", "add", or a provider's id.
+  // "general", "services", "add", or a provider's id.
   const [view, setView] = useState("general");
   const adding = view === "add";
   const active = providers.find((p) => p.id === view);
@@ -343,6 +344,10 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
             <SettingsIcon size={15} />
             <span>General</span>
           </button>
+          <button className={`provider-tab ${view === "services" ? "is-active" : ""}`} onClick={() => setView("services")}>
+            <ActivityIcon size={15} />
+            <span>Services</span>
+          </button>
           <h4 className="provider-list-heading">Model providers</h4>
           {providers.map((p) => (
             <button key={p.id} className={`provider-tab ${p.id === active?.id ? "is-active" : ""}`} onClick={() => setView(p.id)}>
@@ -360,7 +365,9 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
           </button>
         </div>
         <div className="provider-pane">
-          {view === "general" ? (
+          {view === "services" ? (
+            <ServicesView />
+          ) : view === "general" ? (
             <div className="general-settings">
               <AccentChoice />
               <ContextBarChoice />

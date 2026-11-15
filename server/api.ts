@@ -204,6 +204,7 @@ function dropCaches(): Promise<boolean> {
 }
 
 interface LocalServer {
+  startedAt: number;
   key: string;
   model: string;
   port: number;
@@ -274,7 +275,7 @@ async function ensureLocal(options: EnsureRequest): Promise<{ server: LocalServe
   const startedAt = Date.now();
   const port = await freePort();
   const child = spawn(binary, [...args, "--port", String(port)], { stdio: ["ignore", "pipe", "pipe"] });
-  const server: LocalServer = { key, model: options.model, port, process: child, log: [], ready: Promise.resolve() };
+  const server: LocalServer = { key, model: options.model, port, process: child, log: [], ready: Promise.resolve(), startedAt: Date.now() };
   const collect = (data: Buffer) => {
     server.log.push(...data.toString().split("\n").filter(Boolean));
     if (server.log.length > 200) server.log.splice(0, server.log.length - 200);
@@ -556,7 +557,7 @@ export async function handle(req: IncomingMessage, res: ServerResponse, next: ()
 }
 
 // Files only a restart loads: the daemon's code, and what Vite reads at start.
-const DAEMON_FILES = ["server/api.ts", "server/daemon.ts", "server/data.ts", "server/gguf.ts", "server/pi.ts"];
+const DAEMON_FILES = ["server/api.ts", "server/daemon.ts", "server/data.ts", "server/gguf.ts", "server/net.ts", "server/pi.ts", "server/voice.ts"];
 const APP_FILES = ["vite.config.ts", "package.json"];
 const daemonStartedAt = Date.now();
 let appStartedAt = Number(process.env.APP_STARTED_AT) || daemonStartedAt;
@@ -577,8 +578,44 @@ async function changedSince(files: string[], since: number) {
   return changed;
 }
 
-/** What is running and whether it is up to date, for the read_status tool. */
-export async function appStatus(restartPending: string | null) {
+/** Runs a command and returns what it printed, or "" if it failed or isn't installed. */
+function output(command: string, args: string[]) {
+  return new Promise<string>((resolve) => execFile(command, args, { timeout: 3000 }, (error, stdout) => resolve(error ? "" : stdout)));
+}
+
+/**
+ * GPU memory in bytes for each process in `pids`, counting their children too:
+ * the voice server's models load in a Python process uv started under it.
+ */
+async function gpuMemory(pids: number[]) {
+  const [apps, table] = await Promise.all([
+    output("nvidia-smi", ["--query-compute-apps=pid,used_memory", "--format=csv,noheader,nounits"]),
+    output("ps", ["-eo", "pid=,ppid="]),
+  ]);
+  const used = new Map<number, number>();
+  for (const line of apps.trim().split("\n").filter(Boolean)) {
+    const [pid, mib] = line.split(",").map((v) => Number(v.trim()));
+    used.set(pid, (used.get(pid) ?? 0) + mib * 1024 * 1024);
+  }
+  const children = new Map<number, number[]>();
+  for (const line of table.trim().split("\n")) {
+    const [pid, ppid] = line.trim().split(/\s+/).map(Number);
+    children.set(ppid, [...(children.get(ppid) ?? []), pid]);
+  }
+  const total = (pid: number): number => (used.get(pid) ?? 0) + (children.get(pid) ?? []).reduce((sum, child) => sum + total(child), 0);
+  return Object.fromEntries(pids.map((pid) => [pid, total(pid)]));
+}
+
+/**
+ * What is running and whether it is up to date, for the read_status tool and
+ * Settings → Services. `detail` adds GPU memory and recent output, which the
+ * tool doesn't need.
+ */
+export async function appStatus(restartPending: string | null, detail = false) {
+  const llama = local && local.process.exitCode === null ? local : null;
+  const voice = voiceStatus();
+  const pids = [llama?.process.pid, voice.state === "stopped" ? undefined : voice.pid].filter((pid): pid is number => !!pid);
+  const gpu = detail ? await gpuMemory(pids) : {};
   return {
     app: {
       startedAt: new Date(appStartedAt).toISOString(),
@@ -592,9 +629,18 @@ export async function appStatus(restartPending: string | null) {
       unloadedChanges: await changedSince(DAEMON_FILES, daemonStartedAt),
     },
     piRuns: piRuns().map((r) => ({ chat: r.conversationId, startedAt: new Date(r.startedAt).toISOString() })),
-    llamaServer: local
-      ? { running: local.process.exitCode === null, model: basename(local.model), port: local.port, pid: local.process.pid, contextWindow: local.contextWindow }
+    llamaServer: llama
+      ? {
+          running: true,
+          model: basename(llama.model),
+          port: llama.port,
+          pid: llama.process.pid,
+          contextWindow: llama.contextWindow,
+          startedAt: new Date(llama.startedAt).toISOString(),
+          ...(detail && { gpuMemory: gpu[llama.process.pid!], log: llama.log.slice(-30) }),
+        }
       : { running: false },
+    voiceServer: voice.state === "stopped" ? voice : detail ? { ...voice, gpuMemory: gpu[voice.pid!] } : { ...voice, log: undefined },
     restartPending,
   };
 }

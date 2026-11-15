@@ -42,4 +42,5 @@ export const HookIcon = make(<><circle cx="12" cy="5" r="2" /><path d="M12 7v8a4
 export const ServerIcon = make(<><rect x="3" y="4" width="18" height="7" rx="2" /><rect x="3" y="13" width="18" height="7" rx="2" /><path d="M7 7.5h.01M7 16.5h.01" /></>);
 export const MicIcon = make(<><rect x="9" y="3" width="6" height="11" rx="3" /><path d="M5 11a7 7 0 0 0 14 0M12 18v3" /></>);
 export const MicOffIcon = make(<><path d="M15 9.5V6a3 3 0 0 0-5.7-1.3M9 9v2a3 3 0 0 0 4.6 2.5" /><path d="M5 11a7 7 0 0 0 11.5 5.4M19 11a7 7 0 0 1-.6 2.8M12 18v3M4 4l16 16" /></>);
+export const ActivityIcon = make(<path d="M3 12h4l3-8 4 16 3-8h4" />);
 export const DiffIcon = make(<><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z" /><path d="M14 2v4a1 1 0 0 0 1 1h5" /><path d="M9 10h6M12 7v6M9 17h6" /></>);

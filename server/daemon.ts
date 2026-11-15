@@ -33,7 +33,7 @@ function restart(target: "daemon" | "app") {
 
 const server = createServer(async (req, res) => {
   const url = new URL(req.url ?? "/", "http://localhost");
-  if (url.pathname === "/api/status") return sendJson(res, 200, await appStatus(restartPending));
+  if (url.pathname === "/api/status") return sendJson(res, 200, await appStatus(restartPending, url.searchParams.has("detail")));
   if (url.pathname === "/api/restart") {
     if (wrongMethod(req, res, "POST")) return;
     const target = url.searchParams.get("target") === "app" ? "app" : "daemon";

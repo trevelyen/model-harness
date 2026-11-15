@@ -20,6 +20,9 @@ interface VoiceServer {
   process: ChildProcess;
   log: string[];
   ready: Promise<void>;
+  startedAt: number;
+  /** Answering requests, rather than still starting. */
+  listening: boolean;
 }
 
 let voice: VoiceServer | null = null;
@@ -44,7 +47,7 @@ export async function ensureVoice(): Promise<VoiceServer> {
     stdio: ["ignore", "pipe", "pipe"],
     env: { ...process.env, HOST: "127.0.0.1", PORT: String(port), SPEECH_TESTING_DATA: data },
   });
-  const server: VoiceServer = { port, process: child, log: [], ready: Promise.resolve() };
+  const server: VoiceServer = { port, process: child, log: [], ready: Promise.resolve(), startedAt: Date.now(), listening: false };
   const collect = (chunk: Buffer) => {
     const lines = chunk.toString().split("\n").filter(Boolean);
     for (const line of lines) console.log(`[voice] ${line}`);
@@ -60,6 +63,7 @@ export async function ensureVoice(): Promise<VoiceServer> {
   voice = server;
   try {
     await server.ready;
+    server.listening = true;
   } catch (error) {
     if (voice === server) voice = null;
     child.kill("SIGTERM");
@@ -70,8 +74,14 @@ export async function ensureVoice(): Promise<VoiceServer> {
 
 /** Whether the voice server is up, starting, or not running, with its last lines of output. */
 export function voiceStatus() {
-  if (!voice || voice.process.exitCode !== null) return { state: "stopped" };
-  return { state: "running", port: voice.port, log: voice.log.slice(-30) };
+  if (!voice || voice.process.exitCode !== null) return { state: "stopped" as const };
+  return {
+    state: voice.listening ? ("running" as const) : ("starting" as const),
+    port: voice.port,
+    pid: voice.process.pid,
+    startedAt: new Date(voice.startedAt).toISOString(),
+    log: voice.log.slice(-30),
+  };
 }
 
 export function stopVoice() {

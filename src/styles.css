@@ -92,6 +92,8 @@ button, input, textarea { font: inherit; color: inherit; }
 button { cursor: pointer; border: 0; background: none; padding: 0; }
 button:disabled { cursor: default; }
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 8px; }
+/* Chrome counts clicking a dropdown as keyboard focus, so it would get the ring on every click. */
+select:focus-visible { outline: none; border-color: var(--border-strong); }
 
 ::selection { background: var(--accent-soft); }
 
@@ -492,6 +494,75 @@ button:disabled { cursor: default; }
 .send:hover:not(:disabled) { transform: scale(1.06); }
 .send:active:not(:disabled) { transform: scale(0.95); }
 .send:disabled { opacity: 0.2; }
+/* Voice chat (mock) */
+
+.voice-orb {
+  width: 96px; height: 96px; margin: 0 auto 22px; border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, #fff8, transparent 55%), var(--accent);
+  box-shadow: 0 0 0 10px var(--accent-soft), 0 18px 40px -12px var(--accent);
+  animation: breathe 3.2s ease-in-out infinite;
+}
+@keyframes breathe { 50% { transform: scale(1.05); box-shadow: 0 0 0 18px var(--accent-soft), 0 18px 40px -12px var(--accent); } }
+
+.voice-reply p { margin: 0; line-height: 1.65; white-space: pre-wrap; }
+.voice-unheard { color: var(--muted); opacity: 0.6; text-decoration: line-through; text-decoration-color: var(--border-strong); }
+.voice-time { display: block; margin-top: 4px; font-size: 11.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.voice-reply.is-live p::after {
+  content: ""; display: inline-block; width: 7px; height: 7px; margin-left: 6px; border-radius: 50%;
+  background: var(--accent); vertical-align: middle; animation: pulse 1.2s ease-in-out infinite;
+}
+
+/* Same height as the text composer, so its text doesn't jump when switching chats. */
+.voice-composer { padding: 10px; }
+.voice-composer textarea { padding-left: 8px; }
+.voice-bar { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.voice-meters { flex: 1; min-width: 0; display: flex; justify-content: center; gap: 18px; }
+.voice-meter { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--muted); white-space: nowrap; min-width: 0; }
+.voice-meter span { overflow: hidden; text-overflow: ellipsis; }
+.voice-meter b { display: flex; align-items: center; gap: 2px; height: 18px; }
+.voice-meter i { width: 3px; height: 4px; border-radius: 2px; background: var(--border-strong); transition: background 0.3s; }
+.voice-meter.is-live i { background: var(--text-soft); animation: level 0.9s ease-in-out infinite alternate; }
+.voice-meter.is-live:not(.is-speaking) i { animation-duration: 2.4s; }
+.voice-meter.is-speaking i { background: var(--accent); }
+@keyframes level { 0% { height: 4px; } 40% { height: 16px; } 70% { height: 7px; } 100% { height: 13px; } }
+.voice-status { font-size: 12.5px; color: var(--muted); padding: 0 6px; }
+.voice-start {
+  display: grid; place-items: center; flex-shrink: 0;
+  width: 36px; height: 36px; border-radius: 50%;
+  background: var(--accent); color: var(--accent-text);
+  transition: transform 0.2s var(--ease), background 0.25s;
+}
+.voice-start:hover { transform: scale(1.06); }
+.voice-start:active { transform: scale(0.95); }
+.voice-start.is-live { background: var(--danger); }
+
+
+.voice-settings { display: grid; gap: 12px; }
+.voice-settings .composer-sheet-title { margin: 0; }
+.voice-services { display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px; }
+.voice-services button {
+  display: grid; gap: 2px; padding: 8px 10px; text-align: left; border-radius: 11px;
+  border: 1px solid var(--border); transition: border-color 0.2s, background 0.2s;
+}
+.voice-services button:hover { border-color: var(--border-strong); }
+.voice-services button.is-active { border-color: transparent; background: var(--accent-soft); }
+.voice-services strong { font-size: 13px; font-weight: 600; }
+.voice-services button.is-active strong { color: var(--accent); }
+.voice-services small { font-size: 11.5px; color: var(--muted); line-height: 1.35; }
+.voice-field { display: grid; grid-template-columns: 170px 1fr auto; align-items: center; gap: 10px; font-size: 13px; color: var(--text-soft); }
+.voice-field select { padding: 6px 8px; border-radius: 9px; border: 1px solid var(--border); background: var(--bg); color: var(--text); font: inherit; }
+.voice-field input[type="range"] { accent-color: var(--accent); }
+.voice-field em { font-style: normal; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.voice-checks { display: flex; flex-wrap: wrap; gap: 16px; font-size: 13px; color: var(--text-soft); }
+.voice-checks label { display: flex; align-items: center; gap: 6px; }
+.voice-checks input { accent-color: var(--accent); }
+@media (max-width: 600px) {
+  .voice-services { grid-template-columns: 1fr; }
+  .voice-field { grid-template-columns: 1fr auto; }
+  .voice-field span { grid-column: 1 / -1; }
+  .voice-meter span { display: none; }
+}
+
 .composer-hint { max-width: 760px; margin: 8px auto 0; text-align: center; font-size: 12px; color: var(--muted); }
 
 /* Harness panel */
@@ -565,7 +636,8 @@ button:disabled { cursor: default; }
   transition: border-color 0.15s, box-shadow 0.15s;
 }
 .prompt-menu:hover { border-color: var(--border-strong); }
-.prompt-menu:focus-within, .prompt-menu.is-open { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+/* Ringed while typing a name, not when the list is just opened. */
+.prompt-menu:has(input:focus) { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
 .field .prompt-menu input:not([type="range"]) {
   flex: 1; min-width: 0; height: 100%; padding: 0 0 0 12px; border: 0; border-radius: 10px 0 0 10px;
   background: none; box-shadow: none; font-size: 13.5px;
@@ -616,22 +688,40 @@ button:disabled { cursor: default; }
 }
 @keyframes fade { from { opacity: 0; } }
 .dialog {
-  width: min(860px, 100%); height: min(620px, calc(100vh - 32px));
+  width: min(760px, 100%); height: min(600px, calc(100vh - 32px));
   display: flex; flex-direction: column;
   background: var(--elev); border: 1px solid var(--border);
   border-radius: 20px; box-shadow: var(--shadow-lg); overflow: hidden;
   animation: pop 0.28s var(--ease);
 }
+/* A saved size is set inline; these keep it inside a smaller window. */
+.settings-dialog { position: relative; max-width: 100%; max-height: calc(100vh - 32px); min-width: min(560px, 100%); min-height: min(420px, calc(100vh - 32px)); }
+.resize-handle { position: absolute; z-index: 2; touch-action: none; }
+.resize-handle.is-n, .resize-handle.is-s { left: 14px; right: 14px; height: 8px; cursor: ns-resize; }
+.resize-handle.is-e, .resize-handle.is-w { top: 14px; bottom: 14px; width: 8px; cursor: ew-resize; }
+.resize-handle.is-n { top: 0; }
+.resize-handle.is-s { bottom: 0; }
+.resize-handle.is-e { right: 0; }
+.resize-handle.is-w { left: 0; }
+.resize-handle.is-ne, .resize-handle.is-nw, .resize-handle.is-se, .resize-handle.is-sw { width: 16px; height: 16px; }
+.resize-handle.is-ne { top: 0; right: 0; cursor: nesw-resize; }
+.resize-handle.is-sw { bottom: 0; left: 0; cursor: nesw-resize; }
+.resize-handle.is-nw { top: 0; left: 0; cursor: nwse-resize; }
+.resize-handle.is-se { bottom: 0; right: 0; cursor: nwse-resize; }
+/* No text selection or hover effects underneath while dragging an edge. */
+.is-dragging-resize { user-select: none; }
+.is-dragging-resize .settings-dialog * { pointer-events: none; }
+.is-dragging-resize .settings-dialog .resize-handle { pointer-events: auto; }
 .dialog-head { display: flex; align-items: center; justify-content: space-between; padding: 16px 16px 16px 22px; border-bottom: 1px solid var(--border); }
 .dialog-head h2 { margin: 0; font-size: 16px; letter-spacing: -0.01em; }
-.general-settings { display: grid; gap: 4px; }
+/* Settings has no header; its close button sits at the bottom of the left pane. */
+.dialog-close { margin-top: auto; flex-shrink: 0; }
+.general-settings { display: grid; gap: 4px; animation: rise 0.35s var(--ease); }
 .setting-row {
   display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;
   padding: 10px 0; font-size: 14px; color: var(--text-soft);
 }
 .setting-row + .setting-row { border-top: 1px solid var(--border); }
-.setting-row > span:has(.setting-hint) { display: grid; gap: 2px; flex: 1 1 220px; }
-.setting-hint { font-size: 12px; color: var(--muted); }
 .provider-list-heading { margin: 14px 10px 4px; font-size: 12px; font-weight: 500; color: var(--muted); }
 .segmented { display: inline-flex; padding: 3px; border-radius: 999px; background: var(--hover); }
 .segmented button {
@@ -640,17 +730,25 @@ button:disabled { cursor: default; }
 }
 .segmented button:hover { color: var(--text-soft); }
 .segmented button.is-active { background: var(--elev); color: var(--text); box-shadow: 0 1px 3px rgba(0, 0, 0, 0.18); }
+/* Segments that run an action instead of picking an option, like Restart's. */
+.segmented.is-actions button { display: inline-flex; align-items: center; gap: 6px; padding: 0 12px 0 10px; transition: color 0.15s, background 0.2s, box-shadow 0.2s, transform 0.15s var(--ease); }
+.segmented.is-actions button:hover:not(:disabled) { background: var(--elev); color: var(--text); box-shadow: 0 1px 3px rgba(0, 0, 0, 0.18); }
+.segmented.is-actions button:active:not(:disabled) { transform: scale(0.96); }
+.segmented.is-actions button:disabled:not(.is-active) { opacity: 0.5; cursor: default; }
 .dialog-body { flex: 1; min-height: 0; display: grid; grid-template-columns: 220px 1fr; }
-.provider-list { padding: 10px; border-right: 1px solid var(--border); overflow-y: auto; display: grid; align-content: start; gap: 2px; background: var(--bg-soft); }
+.provider-list { padding: 10px; border-right: 1px solid var(--border); overflow-y: auto; display: flex; flex-direction: column; gap: 2px; background: var(--bg-soft); }
 .provider-tab {
   display: flex; align-items: center; gap: 9px; padding: 8px 10px; border-radius: 9px;
-  font-size: 14px; color: var(--text-soft); text-align: left; transition: background 0.15s, color 0.15s;
+  font-size: 14px; color: var(--text-soft); text-align: left;
 }
 .provider-tab span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .provider-tab:hover { background: var(--hover); color: var(--text); }
 .provider-tab.is-active { background: var(--active); color: var(--text); }
 .provider-tab.is-add { color: var(--muted); margin-top: 6px; }
 .provider-pane { padding: 20px 24px; overflow-y: auto; }
+/* The views keep their own layer after rising in. Chrome otherwise redraws them
+   when the animation ends, and the buttons visibly flicker. */
+.general-settings, .provider-editor, .adapter-grid { will-change: transform; }
 .provider-editor { display: grid; gap: 16px; max-width: 520px; animation: rise 0.35s var(--ease); }
 .adapter-note { margin: -4px 0 0; font-size: 13px; color: var(--muted); line-height: 1.5; }
 .adapter-note strong { color: var(--text-soft); font-weight: 600; }

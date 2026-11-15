@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { getModelAdapter, modelAdapters } from "../adapters/registry";
 import { saveNow, setState, uid, useStore, type Provider } from "../state/store";
 import { errorText } from "../lib/http";
@@ -66,8 +66,8 @@ function ProviderEditor({ provider }: { provider: Provider }) {
 }
 
 const BAR_SCALES = [
-  { value: "model", label: "Model's maximum", title: "The full bar is the most the model can handle. Your limit shows as a lighter section." },
-  { value: "limit", label: "My limit", title: "The full bar is your context size limit." },
+  { value: "limit", label: "Limit", title: "The full bar is your context size limit." },
+  { value: "model", label: "Max", title: "The full bar is the most the model can handle. Your limit shows as a lighter section." },
 ] as const;
 
 /** Chooses what the composer's context bar measures against. */
@@ -100,10 +100,7 @@ function HotReloadChoice() {
   const on = useStore((s) => s.hotReload);
   return (
     <div className="setting-row">
-      <span>
-        Hot reload
-        <small className="setting-hint">Shows code changes as soon as they're saved. Off, they show after Restart window, or when pi calls restart_app once it has finished editing this app. A change that reloads the page stops a reply in progress.</small>
-      </span>
+      <span>Hot reload</span>
       <div className="segmented" role="radiogroup" aria-label="Hot reload">
         {[true, false].map((value) => (
           <button
@@ -174,31 +171,19 @@ async function reloadWhenBack() {
   throw new Error("The app didn't come back within a minute. Check that it's still running.");
 }
 
-/** Reloads the page alone. The daemon, pi and llama-server keep running. */
-function RestartWindow() {
+/**
+ * Window reloads the page alone; the daemon, pi and llama-server keep running.
+ * Hard restarts the daemon, which stops pi and llama-server, then reloads the page.
+ */
+function Restart() {
+  const [state, setRestart] = useState<{ busy: boolean; error?: string }>({ busy: false });
+
   const reload = async () => {
     await saveNow();
     window.location.reload();
   };
-  return (
-    <div className="setting-row">
-      <span>
-        Restart window
-        <small className="setting-hint">Reloads this page. The daemon and the loaded model keep running. A reply in progress stops.</small>
-      </span>
-      <button className="button" onClick={() => void reload()}>
-        <RefreshIcon size={15} />
-        Restart
-      </button>
-    </div>
-  );
-}
 
-/** Restarts the API daemon, which stops pi and llama-server, then reloads the page. */
-function HardRestart() {
-  const [state, setRestart] = useState<{ busy: boolean; error?: string }>({ busy: false });
-
-  const restart = async () => {
+  const hard = async () => {
     setRestart({ busy: true });
     // The restart kills the daemon, and the page reloads through the dead proxy,
     // so the save must finish before the request goes out. If it can't, say so
@@ -220,21 +205,88 @@ function HardRestart() {
   return (
     <>
       <div className="setting-row">
-        <span>
-          Hard restart
-          <small className="setting-hint">Restarts the daemon, which loads changes to server/ and the latest pi. Stops any reply in progress, and the model reloads on your next message.</small>
-        </span>
-        <button className="button" onClick={restart} disabled={state.busy}>
-          <RefreshIcon size={15} />
-          {state.busy ? "Restarting" : "Restart"}
-        </button>
+        <span>Restart</span>
+        <div className="segmented is-actions">
+          <button type="button" title="Reloads this page. The loaded model keeps running." onClick={() => void reload()} disabled={state.busy}>
+            <RefreshIcon size={13} />
+            Window
+          </button>
+          <button
+            type="button"
+            className={state.busy ? "is-active" : ""}
+            title="Restarts the daemon, which loads changes to server/ and the latest pi. The model reloads on your next message."
+            onClick={hard}
+            disabled={state.busy}
+          >
+            <RefreshIcon size={13} />
+            {state.busy ? "Restarting" : "Hard"}
+          </button>
+        </div>
       </div>
       {state.error && <p className="test-result is-error"><AlertIcon size={15} />{state.error}</p>}
     </>
   );
 }
 
+const EDGES = ["n", "s", "e", "w", "ne", "nw", "se", "sw"] as const;
+type Edge = (typeof EDGES)[number];
+const MIN_SIZE = { width: 560, height: 420 };
+
+/**
+ * Drag-to-resize for the settings dialog. The dialog stays centred, so an edge
+ * moves twice as far as the pointer would on its own, and grows both sides at
+ * once to keep the dragged edge under the pointer. The size is saved on release.
+ */
+function useResize() {
+  const saved = useStore((s) => s.settingsSize);
+  const [dragging, setDragging] = useState<{ width: number; height: number } | null>(null);
+  const ref = useRef<HTMLDivElement>(null);
+
+  const start = (edge: Edge) => (e: ReactPointerEvent<HTMLDivElement>) => {
+    const box = ref.current?.getBoundingClientRect();
+    if (!box || e.button !== 0) return;
+    e.preventDefault();
+    const handle = e.currentTarget;
+    handle.setPointerCapture(e.pointerId);
+    const x = edge.includes("e") ? 1 : edge.includes("w") ? -1 : 0;
+    const y = edge.includes("s") ? 1 : edge.includes("n") ? -1 : 0;
+    const from = { px: e.clientX, py: e.clientY, width: box.width, height: box.height };
+    let size = { width: box.width, height: box.height };
+    document.body.classList.add("is-dragging-resize");
+    document.body.style.cursor = getComputedStyle(handle).cursor;
+
+    const move = (ev: PointerEvent) => {
+      const clamp = (v: number, min: number, max: number) => Math.round(Math.max(min, Math.min(max, v)));
+      size = {
+        width: clamp(from.width + (ev.clientX - from.px) * x * 2, MIN_SIZE.width, window.innerWidth - 32),
+        height: clamp(from.height + (ev.clientY - from.py) * y * 2, MIN_SIZE.height, window.innerHeight - 32),
+      };
+      setDragging(size);
+    };
+    const end = () => {
+      handle.removeEventListener("pointermove", move);
+      handle.removeEventListener("pointerup", end);
+      handle.removeEventListener("pointercancel", end);
+      document.body.classList.remove("is-dragging-resize");
+      document.body.style.cursor = "";
+      setDragging(null);
+      setState((s) => ({ ...s, settingsSize: size }));
+    };
+    handle.addEventListener("pointermove", move);
+    handle.addEventListener("pointerup", end);
+    handle.addEventListener("pointercancel", end);
+  };
+
+  const size = dragging ?? saved;
+  return {
+    ref,
+    style: size ? { width: size.width, height: size.height } : undefined,
+    handles: EDGES.map((edge) => <div key={edge} className={`resize-handle is-${edge}`} onPointerDown={start(edge)} />),
+  };
+}
+
 export function SettingsDialog({ onClose }: { onClose: () => void }) {
+  const resize = useResize();
   const providers = useStore((s) => s.providers);
   // "general", "add", or a provider's id.
   const [view, setView] = useState("general");
@@ -250,11 +302,7 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
 
   return (
     <div className="overlay" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
-      <div className="dialog" role="dialog" aria-label="Settings">
-        <header className="dialog-head">
-          <h2>Settings</h2>
-          <button className="icon-button" aria-label="Close" onClick={onClose}><XIcon size={17} /></button>
-        </header>
+      <div className="dialog settings-dialog" role="dialog" aria-label="Settings" ref={resize.ref} style={resize.style}>
         <div className="dialog-body">
           <div className="provider-list">
             <button className={`provider-tab ${view === "general" ? "is-active" : ""}`} onClick={() => setView("general")}>
@@ -272,6 +320,10 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
               <PlusIcon size={15} />
               <span>Add provider</span>
             </button>
+            <button className="provider-tab dialog-close" onClick={onClose}>
+              <XIcon size={15} />
+              <span>Close</span>
+            </button>
           </div>
           <div className="provider-pane">
             {view === "general" ? (
@@ -279,8 +331,7 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
                 <ContextBarChoice />
                 <GpuLoadChoice />
                 <HotReloadChoice />
-                <RestartWindow />
-                <HardRestart />
+                <Restart />
               </div>
             ) : adding ? (
               <div className="adapter-grid">
@@ -298,6 +349,7 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
             )}
           </div>
         </div>
+        {resize.handles}
       </div>
     </div>
   );

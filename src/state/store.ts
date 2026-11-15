@@ -91,6 +91,8 @@ export interface State {
   /** Send saved code to the page straight away. Off, it reaches the page on a restart. Read by vite.config.ts and server/pi.ts. */
   hotReload: boolean;
   prompts: SavedPrompt[];
+  /** The settings dialog's size once dragged. Absent, it uses the default from the CSS. */
+  settingsSize?: { width: number; height: number };
 }
 
 // Chats and settings live in the repo's data/ folder, through the dev server.
@@ -116,7 +118,7 @@ const seed: State = {
   selection: null,
   harnessId: defaultHarness.id,
   reasoning: { effort: "high" },
-  contextBar: "model",
+  contextBar: "limit",
   showGpuLoad: false,
   hotReload: false,
   prompts: [],
@@ -173,8 +175,8 @@ function saveSecrets(providers: Provider[]) {
 
 /** The full settings, keys included, for the server's backup in the home folder. */
 function fullSettingsJson(s: State) {
-  const { providers, harnesses, selection, harnessId, activeId, reasoning, contextBar, showGpuLoad, hotReload, prompts } = s;
-  return JSON.stringify({ providers, harnesses, selection, harnessId, activeId, reasoning, contextBar, showGpuLoad, hotReload, prompts });
+  const { providers, harnesses, selection, harnessId, activeId, reasoning, contextBar, showGpuLoad, hotReload, prompts, settingsSize } = s;
+  return JSON.stringify({ providers, harnesses, selection, harnessId, activeId, reasoning, contextBar, showGpuLoad, hotReload, prompts, settingsSize });
 }
 
 let state: State = seed;
@@ -186,8 +188,8 @@ let savedSettingsJson = "";
 const savedChats = new Map<string, Conversation>();
 
 function settingsJson(s: State) {
-  const { providers, harnesses, selection, harnessId, activeId, reasoning, contextBar, showGpuLoad, hotReload, prompts } = s;
-  return JSON.stringify({ providers: providers.map(withoutSecrets), harnesses, selection, harnessId, activeId, reasoning, contextBar, showGpuLoad, hotReload, prompts });
+  const { providers, harnesses, selection, harnessId, activeId, reasoning, contextBar, showGpuLoad, hotReload, prompts, settingsSize } = s;
+  return JSON.stringify({ providers: providers.map(withoutSecrets), harnesses, selection, harnessId, activeId, reasoning, contextBar, showGpuLoad, hotReload, prompts, settingsSize });
 }
 
 async function put(path: string, body: string) {

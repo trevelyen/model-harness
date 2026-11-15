@@ -76,6 +76,26 @@ function ContextRing({ used, limit, max }: { used: number; limit: number; max: n
   );
 }
 
+/** The cog sheet's open state. A click outside `ref` or Escape closes it. */
+export function useSheet() {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const close = (e: MouseEvent) => !ref.current?.contains(e.target as Node) && setOpen(false);
+    const escape = (e: KeyboardEvent) => e.key === "Escape" && setOpen(false);
+    document.addEventListener("mousedown", close);
+    document.addEventListener("keydown", escape);
+    return () => {
+      document.removeEventListener("mousedown", close);
+      document.removeEventListener("keydown", escape);
+    };
+  }, [open]);
+
+  return { open, setOpen, ref };
+}
+
 export function Composer({
   busy,
   onSend,
@@ -97,21 +117,8 @@ export function Composer({
   settings?: ReactNode;
 }) {
   const [text, setText] = useState("");
-  const [settingsOpen, setSettingsOpen] = useState(false);
+  const { open: settingsOpen, setOpen: setSettingsOpen, ref: stackRef } = useSheet();
   const ref = useRef<HTMLTextAreaElement>(null);
-  const stackRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!settingsOpen) return;
-    const close = (e: MouseEvent) => !stackRef.current?.contains(e.target as Node) && setSettingsOpen(false);
-    const escape = (e: KeyboardEvent) => e.key === "Escape" && setSettingsOpen(false);
-    document.addEventListener("mousedown", close);
-    document.addEventListener("keydown", escape);
-    return () => {
-      document.removeEventListener("mousedown", close);
-      document.removeEventListener("keydown", escape);
-    };
-  }, [settingsOpen]);
 
   useEffect(() => {
     const el = ref.current;

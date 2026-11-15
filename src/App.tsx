@@ -11,6 +11,7 @@ import { DiffIcon, SidebarIcon, SlidersIcon } from "./components/Icons";
 import { SystemMeters } from "./components/SystemMeters";
 import { RestartNotice } from "./components/RestartNotice";
 import { ChangesPane } from "./components/ChangesPane";
+import { VoiceChat } from "./components/VoiceMock";
 
 export function App() {
   const conversation = useStore((s) => s.conversations.find((c) => c.id === s.activeId));
@@ -26,6 +27,8 @@ export function App() {
   const [harnessOpen, setHarnessOpen] = useState(false);
   // The changes pane, opened by the round button in the corner. Empty for now.
   const [changesOpen, setChangesOpen] = useState(false);
+  // Only text chats make file changes, so only they get the changes pane.
+  const isText = (conversation?.kind ?? "text") === "text";
   const busy = !!conversation?.messages.at(-1)?.streaming;
   // The latest reply's prompt plus answer is what the next message builds on.
   const lastUsage = conversation?.messages.findLast((m) => m.usage?.inputTokens)?.usage;
@@ -100,34 +103,42 @@ export function App() {
         {/* The chat, and beside it the changes pane, both under the header. */}
         <div className="main-body">
           <div className="chat-column">
-            <Thread conversation={conversation} />
-            <Composer
-              busy={busy}
-              onSend={(t) => void send(t)}
-              onStop={() => conversation && stop(conversation.id)}
-              context={context}
-              settings={
-                <>
-                  <h3 className="composer-sheet-title">{conversation?.kind ?? "text"} settings</h3>
-                  <p className="composer-sheet-note">Settings for this type of chat will go here.</p>
-                </>
-              }
-              reasoning={reasoningSupport && { support: reasoningSupport, choice: reasoningChoice, onChange: (next) => setReasoning(() => next) }}
-              hint={hasModel ? (harnessName && harnessName !== "Default" ? `Harness: ${harnessName}` : undefined) : "Choose a model to start chatting."}
-            />
+            {conversation?.kind === "voice" ? (
+              <VoiceChat key={conversation.id} />
+            ) : (
+              <>
+                <Thread conversation={conversation} />
+                <Composer
+                  busy={busy}
+                  onSend={(t) => void send(t)}
+                  onStop={() => conversation && stop(conversation.id)}
+                  context={context}
+                  settings={
+                    <>
+                      <h3 className="composer-sheet-title">{conversation?.kind ?? "text"} settings</h3>
+                      <p className="composer-sheet-note">Settings for this type of chat will go here.</p>
+                    </>
+                  }
+                  reasoning={reasoningSupport && { support: reasoningSupport, choice: reasoningChoice, onChange: (next) => setReasoning(() => next) }}
+                  hint={hasModel ? (harnessName && harnessName !== "Default" ? `Harness: ${harnessName}` : undefined) : "Choose a model to start chatting."}
+                />
+              </>
+            )}
           </div>
-          <ChangesPane open={changesOpen} />
+          {isText && <ChangesPane open={changesOpen} />}
         </div>
       </main>
       <HarnessPanel open={harnessOpen} onClose={() => setHarnessOpen(false)} />
       {settingsOpen && <SettingsDialog onClose={() => setSettingsOpen(false)} />}
-      <button
-        type="button" className={`corner-button ${changesOpen ? "is-active" : ""}`}
-        aria-label="Changes" aria-pressed={changesOpen} title="Changes"
-        onClick={() => setChangesOpen((o) => !o)}
-      >
-        <DiffIcon size={19} />
-      </button>
+      {isText && (
+        <button
+          type="button" className={`corner-button ${changesOpen ? "is-active" : ""}`}
+          aria-label="Changes" aria-pressed={changesOpen} title="Changes"
+          onClick={() => setChangesOpen((o) => !o)}
+        >
+          <DiffIcon size={19} />
+        </button>
+      )}
     </div>
   );
 }

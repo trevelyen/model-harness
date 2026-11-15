@@ -148,7 +148,9 @@ select:focus-visible { outline: none; border-color: var(--border-strong); }
   font-weight: 500;
   font-size: 13px;
 }
-.new-chat:hover { border-color: var(--border-strong); box-shadow: var(--shadow-md); }
+.new-chat:hover:not(:disabled) { border-color: var(--border-strong); box-shadow: var(--shadow-md); }
+/* Image and video chats aren't built yet. */
+.new-chat:disabled { opacity: 0.4; }
 .new-buttons { display: grid; gap: 8px; }
 .new-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .new-grid .new-chat { min-width: 0; padding: 9px 10px; gap: 6px; }

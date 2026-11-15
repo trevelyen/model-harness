@@ -79,11 +79,11 @@ export function Sidebar({ open, onSettings, onNavigate }: { open: boolean; onSet
               <PlusIcon size={16} />
               <span>Sound</span>
             </button>
-            <button className="new-chat" onClick={() => { newConversation("image"); onNavigate(); }}>
+            <button className="new-chat" disabled>
               <PlusIcon size={16} />
               <span>Image</span>
             </button>
-            <button className="new-chat" onClick={() => { newConversation("video"); onNavigate(); }}>
+            <button className="new-chat" disabled>
               <PlusIcon size={16} />
               <span>Video</span>
             </button>

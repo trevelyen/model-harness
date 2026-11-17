@@ -1,13 +1,14 @@
 // Starts the API daemon and Vite together, for `npm run dev` and `npm run preview`.
 // Vite forwards /api to the daemon. If Vite stops, the daemon stops with it.
 // If the daemon stops, it is started again, so Restart in Settings and a crash
-// both bring it back. The daemon can ask for Vite alone to be restarted.
+// both bring it back. The daemon can ask for Vite alone to be restarted, or for both.
 import { spawn, type ChildProcess } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { freePort } from "./net.ts";
 
-// The exit code server/daemon.ts uses for Restart.
+// The exit codes server/daemon.ts uses for Restart: the daemon alone, or Vite too.
 const RESTART_DAEMON = 75;
+const RESTART_ALL = 76;
 
 const apiPort = Number(process.env.API_PORT) || (await freePort());
 const env: NodeJS.ProcessEnv = { ...process.env, API_PORT: String(apiPort), APP_STARTED_AT: String(Date.now()) };
@@ -26,8 +27,10 @@ function startDaemon() {
   });
   daemon.on("exit", (code) => {
     if (stopping) return;
-    if (code !== RESTART_DAEMON) console.error(`API daemon exited (code ${code}); starting it again.`);
-    setTimeout(startDaemon, code === RESTART_DAEMON ? 0 : 1000);
+    if (code === RESTART_ALL) restartVite();
+    const asked = code === RESTART_DAEMON || code === RESTART_ALL;
+    if (!asked) console.error(`API daemon exited (code ${code}); starting it again.`);
+    setTimeout(startDaemon, asked ? 0 : 1000);
   });
 }
 

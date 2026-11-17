@@ -5,10 +5,12 @@ import { createServer } from "node:http";
 import { appRestarted, appStatus, handle, sendJson, stopAll, wrongMethod } from "./api.ts";
 import { whenPiIdle } from "./pi.ts";
 import { upgradeVoice } from "./voice.ts";
+import { upgradeComfy } from "./comfy.ts";
 import type { Socket } from "node:net";
 
-// server/dev.ts starts the daemon again when it exits with this code.
+// server/dev.ts starts the daemon again when it exits with the first code, and Vite too with the second.
 const RESTART_DAEMON = 75;
+const RESTART_ALL = 76;
 
 const port = Number(process.env.API_PORT);
 if (!port) {
@@ -16,11 +18,14 @@ if (!port) {
   process.exit(1);
 }
 
-// "daemon" or "app" while a restart waits for pi runs to finish.
-let restartPending: "daemon" | "app" | null = null;
+type Target = "daemon" | "app" | "all";
+
+// The target while a restart waits for pi runs to finish.
+let restartPending: Target | null = null;
 
 // An app restart is Vite alone, which server/dev.ts does when asked. The daemon carries on.
-function restart(target: "daemon" | "app") {
+// All is both, as Settings → Hard does.
+function restart(target: Target) {
   if (target === "app") {
     restartPending = null;
     process.send?.({ restart: "vite" });
@@ -28,7 +33,7 @@ function restart(target: "daemon" | "app") {
     return;
   }
   stopAll();
-  process.exit(RESTART_DAEMON);
+  process.exit(target === "all" ? RESTART_ALL : RESTART_DAEMON);
 }
 
 const server = createServer(async (req, res) => {
@@ -36,7 +41,8 @@ const server = createServer(async (req, res) => {
   if (url.pathname === "/api/status") return sendJson(res, 200, await appStatus(restartPending, url.searchParams.has("detail")));
   if (url.pathname === "/api/restart") {
     if (wrongMethod(req, res, "POST")) return;
-    const target = url.searchParams.get("target") === "app" ? "app" : "daemon";
+    const asked = url.searchParams.get("target");
+    const target: Target = asked === "app" || asked === "all" ? asked : "daemon";
     // "idle" waits until no chat is replying, so a chat can restart the app without cutting itself off.
     if (url.searchParams.get("when") === "idle") {
       // A Vite restart cuts the browser's reply stream, which runs through its proxy, so it waits too.
@@ -54,7 +60,11 @@ const server = createServer(async (req, res) => {
 });
 
 // A voice chat's session is a websocket, joined straight to the voice server.
-server.on("upgrade", (req, socket: Socket, head: Buffer) => void upgradeVoice(req, socket, head));
+// So is ComfyUI's, for its page under /api/comfy/ui/.
+server.on("upgrade", (req, socket: Socket, head: Buffer) => {
+  if (req.url?.startsWith("/api/comfy/ui/")) return upgradeComfy(req, socket, head);
+  void upgradeVoice(req, socket, head);
+});
 
 // pi reuses idle connections between model requests, which can be a long tool call apart.
 // Node closes them after 5s by default, and pi's next request on one fails, so keep them open.

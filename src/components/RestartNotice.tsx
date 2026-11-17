@@ -4,7 +4,7 @@ import { CheckIcon, RefreshIcon, XIcon } from "./Icons";
 interface AppStatus {
   app?: { startedAt?: string };
   daemon?: { startedAt?: string };
-  restartPending?: "app" | "daemon" | null;
+  restartPending?: "app" | "daemon" | "all" | null;
 }
 
 const POLL_MS = 1500;
@@ -93,7 +93,7 @@ export function RestartNotice() {
   if (!key || key === dismissed) return null;
 
   // One short line in the top bar; the tooltip says what it means.
-  const which = (pending ?? back) === "app" ? "App" : "Daemon";
+  const which = { app: "App", daemon: "Daemon", all: "App and daemon" }[pending ?? back ?? "daemon"];
   const label = pending ? `${which} restarts after this reply` : `${which} restarted`;
   const detail = pending
     ? "It waits for replies in progress to finish, so none get cut off."

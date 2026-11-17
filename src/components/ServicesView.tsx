@@ -19,22 +19,25 @@ interface Status {
   soundServer:
     | { state: "stopped" }
     | { state: "starting" | "running"; model: string; pid: number; startedAt: string; busy: boolean; gpuMemory?: number; log?: string[] };
+  comfy:
+    | { state: "stopped" }
+    | { state: "starting" | "running"; folder: string; port: number; pid: number; startedAt: string; gpuMemory?: number; log?: string[] };
   restartPending: string | null;
 }
 
 const POLL_MS = 2000;
 
-function uptime(since: string) {
+export function uptime(since: string) {
   const minutes = Math.floor((Date.now() - Date.parse(since)) / 60_000);
   if (minutes < 1) return "just started";
   if (minutes < 60) return `${minutes} min`;
   return `${Math.floor(minutes / 60)} h ${minutes % 60} min`;
 }
 
-const gigabytes = (bytes: number) => `${(bytes / 1e9).toFixed(1)} GB`;
+export const gigabytes = (bytes: number) => `${(bytes / 1e9).toFixed(1)} GB`;
 
 /** One process: a dot for its state, its name, what it's doing, and its recent output. */
-function Service({ name, state, details, action, log, note }: {
+export function Service({ name, state, details, action, log, note }: {
   name: string;
   state: "running" | "starting" | "stopped";
   details: (string | false | 0 | undefined)[];
@@ -118,8 +121,15 @@ export function ServicesView() {
     await refresh();
   };
 
+  const stopComfy = async () => {
+    await fetch("/api/comfy/stop", { method: "POST" });
+    await refresh();
+  };
+
   if (!status) return <div className="general-settings">{error && <p className="service-note">{error}</p>}</div>;
   const { app, daemon, llamaServer: llama, voiceServer: voice, soundServer: sound, piRuns } = status;
+  // A daemon started before ComfyUI was added sends no comfy field.
+  const comfy = status.comfy ?? { state: "stopped" as const };
   const title = (id: string) => chats.find((c) => c.id === id)?.title ?? id;
 
   return (
@@ -187,6 +197,22 @@ export function ServicesView() {
         }
         action={sound.state !== "stopped" && <StopButton onStop={stopSound} />}
         log={sound.state === "stopped" ? undefined : sound.log}
+      />
+      <Service
+        name="ComfyUI"
+        state={comfy.state}
+        details={
+          comfy.state === "stopped"
+            ? ["Starts from Settings → ComfyUI"]
+            : [
+                comfy.gpuMemory ? `${gigabytes(comfy.gpuMemory)} GPU` : undefined,
+                `Port ${comfy.port}`,
+                `PID ${comfy.pid}`,
+                `Up ${uptime(comfy.startedAt)}`,
+              ]
+        }
+        action={comfy.state !== "stopped" && <StopButton onStop={stopComfy} />}
+        log={comfy.state === "stopped" ? undefined : comfy.log}
       />
       <Service
         name="pi"

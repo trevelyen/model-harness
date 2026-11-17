@@ -3,8 +3,9 @@ import { getModelAdapter, modelAdapters } from "../adapters/registry";
 import { saveNow, setState, uid, updateVoice, useStore, type Provider } from "../state/store";
 import { errorText } from "../lib/http";
 import { ColorPicker } from "./ColorPicker";
-import { ActivityIcon, CheckIcon, PlusIcon, RefreshIcon, ServerIcon, SettingsIcon, TrashIcon, XIcon, AlertIcon } from "./Icons";
+import { ActivityIcon, CheckIcon, PlusIcon, RefreshIcon, ServerIcon, SettingsIcon, SparkIcon, TrashIcon, XIcon, AlertIcon } from "./Icons";
 import { ServicesView } from "./ServicesView";
+import { ComfyView } from "./ComfyView";
 import { Modal } from "./Modal";
 import { Segmented } from "./Segmented";
 import { Field } from "./Field";
@@ -188,9 +189,9 @@ function AccentChoice() {
   );
 }
 
-/** Asks the daemon to restart. */
+/** Asks the daemon to restart itself and Vite. */
 async function requestRestart() {
-  const res = await fetch("/api/restart", { method: "POST" });
+  const res = await fetch("/api/restart?target=all", { method: "POST" });
   if (!res.ok) throw new Error(await errorText(res));
 }
 
@@ -213,7 +214,7 @@ async function reloadWhenBack() {
 
 /**
  * Window reloads the page alone; the daemon, pi and llama-server keep running.
- * Hard restarts the daemon, which stops pi and llama-server, then reloads the page.
+ * Hard restarts the daemon and Vite, which stops pi, llama-server and the rest, then reloads the page.
  */
 function Restart() {
   const [state, setRestart] = useState<{ busy: boolean; error?: string }>({ busy: false });
@@ -254,7 +255,7 @@ function Restart() {
           <button
             type="button"
             className={state.busy ? "is-active" : ""}
-            title="Restarts the daemon, which loads changes to server/ and the latest pi. The model reloads on your next message."
+            title="Restarts the daemon and Vite, which loads changes to server/, package.json, vite.config.ts and the latest pi. The model reloads on your next message."
             onClick={hard}
             disabled={state.busy}
           >
@@ -324,7 +325,7 @@ function useResize() {
 export function SettingsDialog({ onClose }: { onClose: () => void }) {
   const resize = useResize();
   const providers = useStore((s) => s.providers);
-  // "general", "services", "add", or a provider's id.
+  // "general", "services", "comfy", "add", or a provider's id.
   const [view, setView] = useState("general");
   const adding = view === "add";
   const active = providers.find((p) => p.id === view);
@@ -343,6 +344,10 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
           <button className={`provider-tab ${view === "general" ? "is-active" : ""}`} onClick={() => setView("general")}>
             <SettingsIcon size={15} />
             <span>General</span>
+          </button>
+          <button className={`provider-tab ${view === "comfy" ? "is-active" : ""}`} onClick={() => setView("comfy")}>
+            <SparkIcon size={15} />
+            <span>ComfyUI</span>
           </button>
           <button className={`provider-tab ${view === "services" ? "is-active" : ""}`} onClick={() => setView("services")}>
             <ActivityIcon size={15} />
@@ -367,6 +372,8 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
         <div className="provider-pane">
           {view === "services" ? (
             <ServicesView />
+          ) : view === "comfy" ? (
+            <ComfyView />
           ) : view === "general" ? (
             <div className="general-settings">
               <AccentChoice />

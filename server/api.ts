@@ -13,6 +13,7 @@ import { deleteChat, isSafeId, readAll, settingOn, writeBackup, writeChat, write
 import { piRuns, runPi, sendToRun, stopAllPi, type PiEndpoint, type PiRunRequest } from "./pi.ts";
 import { randomUUID } from "node:crypto";
 import { ensureVoice, stopVoice, voiceStatus, voiceTarget } from "./voice.ts";
+import { checkRemoteComfy, comfyPort, comfyStatus, killComfy, resizeTerminal, restartComfy, startComfy, stopComfy, typeIntoComfy, watchTerminal } from "./comfy.ts";
 import { freePort, waitUntilAnswering } from "./net.ts";
 import { deleteChatSounds, handleMake, serveSound, SOUND_MODELS, soundStatus, stopSound } from "./sound.ts";
 
@@ -427,6 +428,83 @@ async function askStaff(req: IncomingMessage, res: ServerResponse) {
   return sendJson(res, result.error ? 502 : 200, result);
 }
 
+/** ComfyUI's terminal output as a stream of events: what it printed so far, then each new piece. */
+function comfyTerminal(res: ServerResponse) {
+  res.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-cache" });
+  const stop = watchTerminal((event) => res.write(`data: ${JSON.stringify(event)}\n\n`));
+  const ping = setInterval(() => res.write(": ping\n\n"), 25_000);
+  res.on("close", () => {
+    clearInterval(ping);
+    stop();
+  });
+}
+
+// What ComfyUI sends back, minus what no longer holds once fetch has decoded the body.
+const DROP_RESPONSE_HEADERS = new Set(["content-encoding", "content-length", "transfer-encoding", "connection", "keep-alive"]);
+
+/** A request under /api/comfy/ui/, passed on to ComfyUI with its answer's headers kept. */
+async function forwardComfy(req: IncomingMessage, res: ServerResponse, url: URL) {
+  const port = comfyPort();
+  if (!port) return sendJson(res, 503, { error: "ComfyUI is not running" });
+  const headers: Record<string, string> = {};
+  for (const [key, value] of Object.entries(req.headers)) {
+    if (!DROP_REQUEST_HEADERS.has(key) && typeof value === "string") headers[key] = value;
+  }
+  const controller = new AbortController();
+  res.on("close", () => controller.abort());
+  const body = req.method === "GET" || req.method === "HEAD" ? undefined : new Uint8Array(await readBody(req));
+  const target = `http://127.0.0.1:${port}/${url.pathname.slice("/api/comfy/ui/".length)}${url.search}`;
+  try {
+    const upstream = await fetch(target, { method: req.method, headers, body, redirect: "manual", signal: controller.signal });
+    res.statusCode = upstream.status;
+    upstream.headers.forEach((value, key) => {
+      if (DROP_RESPONSE_HEADERS.has(key)) return;
+      // A redirect to one of ComfyUI's own paths stays under the prefix.
+      res.setHeader(key, key === "location" && value.startsWith("/") ? `/api/comfy/ui${value}` : value);
+    });
+    if (!upstream.body) return res.end();
+    await pipeline(Readable.fromWeb(upstream.body as never), res).catch(() => {});
+  } catch (error) {
+    if (controller.signal.aborted) return;
+    sendJson(res, 502, { error: `Could not reach ComfyUI: ${(error as Error).message}` });
+  }
+}
+
+// Settings → ComfyUI. Start and restart take the folder in the body, as the page has it.
+async function handleComfy(req: IncomingMessage, res: ServerResponse, url: URL) {
+  const action = url.pathname.slice("/api/comfy/".length);
+  if (action === "status") return sendJson(res, 200, comfyStatus());
+  if (action === "check") return sendJson(res, 200, await checkRemoteComfy(url.searchParams.get("url") ?? ""));
+  if (action === "terminal") return comfyTerminal(res);
+  // Its frontend takes its page's folder as the base for every request, so the page needs the trailing slash.
+  if (action === "ui") {
+    res.writeHead(308, { location: `/api/comfy/ui/${url.search}` });
+    return res.end();
+  }
+  if (action.startsWith("ui/")) return await forwardComfy(req, res, url);
+  if (wrongMethod(req, res, "POST")) return;
+  if (action === "terminal/input") {
+    const { data } = await readJson<{ data?: string }>(req, {});
+    if (typeof data === "string") typeIntoComfy(data);
+    return sendJson(res, 200, { ok: true });
+  }
+  if (action === "terminal/resize") {
+    const { cols, rows } = await readJson<{ cols?: number; rows?: number }>(req, {});
+    resizeTerminal(Number(cols), Number(rows));
+    return sendJson(res, 200, { ok: true });
+  }
+  const { folder = "" } = await readJson<{ folder?: string }>(req, {});
+  try {
+    if (action === "start") await startComfy(folder);
+    else if (action === "restart") await restartComfy(folder, url.searchParams.has("hard"));
+    else if (action === "stop") await stopComfy();
+    else return sendJson(res, 404, { error: "Not found" });
+  } catch (error) {
+    return sendJson(res, 400, { error: (error as Error).message });
+  }
+  return sendJson(res, 200, comfyStatus());
+}
+
 export async function handle(req: IncomingMessage, res: ServerResponse, next: () => void) {
   if (!req.url?.startsWith("/api/")) return next();
   if (isCrossSite(req)) return sendJson(res, 403, { error: "Cross-site requests are not allowed" });
@@ -451,6 +529,7 @@ export async function handle(req: IncomingMessage, res: ServerResponse, next: ()
     if (url.pathname.startsWith("/api/voice/")) {
       return await forward(req, res, voiceTarget(await ensureVoice(), url.pathname, url.search));
     }
+    if (url.pathname.startsWith("/api/comfy/")) return await handleComfy(req, res, url);
     if (url.pathname === "/api/sound/models") return sendJson(res, 200, SOUND_MODELS);
     if (url.pathname === "/api/sound/make") {
       if (wrongMethod(req, res, "POST")) return;
@@ -570,7 +649,7 @@ export async function handle(req: IncomingMessage, res: ServerResponse, next: ()
 }
 
 // Files only a restart loads: the daemon's code, and what Vite reads at start.
-const DAEMON_FILES = ["server/api.ts", "server/daemon.ts", "server/data.ts", "server/gguf.ts", "server/net.ts", "server/pi.ts", "server/sound.ts", "server/voice.ts"];
+const DAEMON_FILES = ["server/api.ts", "server/daemon.ts", "server/data.ts", "server/gguf.ts", "server/net.ts", "server/pi.ts", "server/sound.ts", "server/voice.ts", "server/comfy.ts"];
 const APP_FILES = ["vite.config.ts", "package.json"];
 const daemonStartedAt = Date.now();
 let appStartedAt = Number(process.env.APP_STARTED_AT) || daemonStartedAt;
@@ -628,7 +707,13 @@ export async function appStatus(restartPending: string | null, detail = false) {
   const llama = local && local.process.exitCode === null ? local : null;
   const voice = voiceStatus();
   const sound = soundStatus();
-  const pids = [llama?.process.pid, voice.state === "stopped" ? undefined : voice.pid, sound.state === "stopped" ? undefined : sound.pid]
+  const comfy = comfyStatus();
+  const pids = [
+    llama?.process.pid,
+    voice.state === "stopped" ? undefined : voice.pid,
+    sound.state === "stopped" ? undefined : sound.pid,
+    comfy.state === "stopped" ? undefined : comfy.pid,
+  ]
     .filter((pid): pid is number => !!pid);
   const gpu = detail ? await gpuMemory(pids) : {};
   return {
@@ -657,6 +742,7 @@ export async function appStatus(restartPending: string | null, detail = false) {
       : { running: false },
     voiceServer: voice.state === "stopped" ? voice : detail ? { ...voice, gpuMemory: gpu[voice.pid!] } : { ...voice, log: undefined },
     soundServer: sound.state === "stopped" ? sound : detail ? { ...sound, gpuMemory: gpu[sound.pid] } : { ...sound, log: undefined },
+    comfy: comfy.state === "stopped" ? comfy : detail ? { ...comfy, gpuMemory: gpu[comfy.pid] } : { ...comfy, log: undefined },
     restartPending,
   };
 }
@@ -667,6 +753,7 @@ export function stopAll() {
   stopLocal();
   stopVoice();
   stopSound();
+  killComfy();
 }
 
 process.on("exit", stopAll);

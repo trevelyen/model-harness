@@ -844,6 +844,37 @@ a.icon-button { color: var(--muted); }
 .general-settings > .setting-row:first-child { padding-top: 0; }
 .general-settings > .setting-row:last-child { padding-bottom: 0; }
 .general-settings > .test-result { margin-top: 10px; }
+.comfy-settings { gap: 16px; }
+.comfy-settings > .setting-row { padding: 0; border-top: 0; }
+.comfy-settings > .test-result { margin-top: 0; }
+.comfy-status { display: flex; align-items: center; gap: 10px; min-width: 0; padding-left: 8px; }
+.comfy-details { font-size: 12.5px; color: var(--muted); font-variant-numeric: tabular-nums; display: flex; gap: 12px; }
+.comfy-open { padding: 0; border: 0; background: none; font: inherit; color: var(--accent); cursor: pointer; }
+.comfy-open:hover { text-decoration: underline; }
+.comfy-frame { position: fixed; inset: 0; z-index: 200; display: flex; flex-direction: column; background: var(--bg); }
+.comfy-frame-bar { display: flex; align-items: center; gap: 12px; padding: 8px 12px; border-bottom: 1px solid var(--border); }
+.comfy-frame-bar a.button { text-decoration: none; }
+.comfy-frame-url { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12.5px; color: var(--muted); text-align: center; }
+.comfy-frame-page { flex: 1; width: 100%; border: 0; background: #0e0e11; }
+.comfy-settings > .service-note { margin: 0; }
+/* Drag the bottom edge to make it taller. The terminal refits to whatever size it's given. */
+.comfy-terminal {
+  display: flex; height: 340px; min-height: 160px; resize: vertical; overflow: hidden;
+  border-radius: 10px; background: #0e0e11; border: 1px solid var(--border);
+}
+.comfy-terminal-x { flex: 1; min-width: 0; overflow: auto hidden; padding: 8px 0 0 10px; }
+.comfy-terminal-y { width: 12px; flex-shrink: 0; overflow: hidden scroll; margin-bottom: 12px; }
+.comfy-terminal-screen { height: 100%; width: max-content; padding-right: 10px; }
+.comfy-terminal .xterm { height: 100%; }
+/* xterm paints black under the last whole line. Match the terminal's own colour instead. */
+.comfy-terminal .xterm-viewport, .comfy-terminal .xterm-scrollable-element { background-color: #0e0e11 !important; }
+/* Its own vertical scrollbar is out of view at the 300th column; .comfy-terminal-y stands in. */
+.comfy-terminal .xterm-scrollable-element > .scrollbar.vertical { display: none; }
+.comfy-terminal-x::-webkit-scrollbar, .comfy-terminal-y::-webkit-scrollbar { width: 12px; height: 12px; }
+.comfy-terminal-x::-webkit-scrollbar-track, .comfy-terminal-y::-webkit-scrollbar-track { background: #16161b; }
+.comfy-terminal-x::-webkit-scrollbar-thumb, .comfy-terminal-y::-webkit-scrollbar-thumb { background: #3a3a46; border-radius: 0; }
+.comfy-terminal-x::-webkit-scrollbar-thumb:hover, .comfy-terminal-y::-webkit-scrollbar-thumb:hover { background: #4d4d5c; }
+.comfy-terminal-x::-webkit-scrollbar-corner { background: #16161b; }
 .accent-setting { display: block; }
 .accent-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
 /* Sits in the same pill as the segmented choices beside it, at the same 32px height. */

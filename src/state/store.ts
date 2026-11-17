@@ -126,6 +126,16 @@ export interface State {
   /** Voice chats: the service, each service's settings as changed in the sheet, and whether the mic is used. */
   voice: VoiceSettings;
   sound: SoundSettings;
+  comfy: ComfySettings;
+}
+
+/** Settings → ComfyUI: run it from a folder here, or use one running elsewhere. */
+export interface ComfySettings {
+  mode: "local" | "remote";
+  /** The folder ComfyUI was cloned into, with its main.py. */
+  folder: string;
+  /** A remote ComfyUI's address, such as http://192.168.1.20:8188. */
+  url: string;
 }
 
 export interface SoundSettings {
@@ -180,6 +190,7 @@ const seed: State = {
   stopOnClose: false,
   voice: { service: "cascade", mic: true, values: {}, onLeave: "ask" },
   sound: { mode: "song", seconds: { song: 0, instrumental: 60, effect: 6 }, songModel: "ace-step", takes: 2, format: "wav" },
+  comfy: { mode: "local", folder: "", url: "" },
 };
 
 /** Fixes data saved by earlier versions. */
@@ -234,7 +245,7 @@ function saveSecrets(providers: Provider[]) {
 // The settings saved to data/state.json: everything but the chats, which are saved one file each.
 const SETTINGS_KEYS = [
   "providers", "harnesses", "selection", "harnessId", "activeId", "reasoning", "contextBar",
-  "showGpuLoad", "accent", "hotReload", "prompts", "settingsSize", "voice", "sound", "stopOnClose",
+  "showGpuLoad", "accent", "hotReload", "prompts", "settingsSize", "voice", "sound", "stopOnClose", "comfy",
 ] as const satisfies readonly (keyof State)[];
 
 function settingsOf(s: State) {
@@ -405,4 +416,8 @@ export function updateMessage(conversationId: string, messageId: string, update:
     ...c,
     messages: c.messages.map((m) => (m.id === messageId ? update(m) : m)),
   }));
+}
+
+export function updateComfy(change: Partial<ComfySettings>) {
+  setState((s) => ({ ...s, comfy: { ...s.comfy, ...change } }));
 }

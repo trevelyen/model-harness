@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useDismiss } from "../lib/useDismiss";
 import type { Effort, ReasoningSupport } from "../adapters/types";
 import type { ReasoningChoice } from "../state/store";
-import { ArrowUpIcon, BrainIcon, SettingsIcon, StopIcon } from "./Icons";
+import { ArrowUpIcon, BrainIcon, DiffIcon, SettingsIcon, StopIcon } from "./Icons";
 
 const EFFORTS: { value: Effort; label: string; budget: string; native: string }[] = [
   { value: "low", label: "Low", budget: "Thinks for up to about 1,000 tokens", native: "Brief thinking" },
@@ -148,6 +148,7 @@ export function Composer({
   hint,
   reasoning,
   context,
+  changes,
   settings,
 }: {
   busy: boolean;
@@ -158,6 +159,8 @@ export function Composer({
   reasoning?: { support: ReasoningSupport; choice: ReasoningChoice; onChange: (next: ReasoningChoice) => void };
   /** Tokens the chat takes up, the backend's limit, and the most the model can handle. */
   context?: { used: number; limit: number; max: number };
+  /** The button that shows and hides the changes pane. No button without it. */
+  changes?: { open: boolean; onToggle: () => void };
   /** What the cog's sheet shows. No cog without it. */
   settings?: ReactNode;
 }) {
@@ -187,6 +190,14 @@ export function Composer({
             <span />
             <div className="composer-bar-end">
               {context && <ContextRing {...context} />}
+              {changes && (
+                <button
+                  type="button" className={`icon-button ${changes.open ? "is-active" : ""}`}
+                  aria-label="Changes" aria-pressed={changes.open} title="Changes" onClick={changes.onToggle}
+                >
+                  <DiffIcon size={16} />
+                </button>
+              )}
               {busy ? (
                 <button type="button" className="send is-stop" aria-label="Stop" onClick={onStop}>
                   <StopIcon size={20} />

@@ -127,6 +127,15 @@ export interface State {
   voice: VoiceSettings;
   sound: SoundSettings;
   comfy: ComfySettings;
+  image: ImageSettings;
+}
+
+export type ImageMode = "txt2img" | "img2img" | "edit" | "upscale";
+
+/** Image chats: the mode, and for each mode the workflow and model file picked in the composer's sheet. */
+export interface ImageSettings {
+  mode: ImageMode;
+  models: Partial<Record<ImageMode, { workflow: string; file: string }>>;
 }
 
 /** Settings → ComfyUI: run it from a folder here, or use one running elsewhere. */
@@ -191,6 +200,7 @@ const seed: State = {
   voice: { service: "cascade", mic: true, values: {}, onLeave: "ask" },
   sound: { mode: "song", seconds: { song: 0, instrumental: 60, effect: 6 }, songModel: "ace-step", takes: 2, format: "wav" },
   comfy: { mode: "local", folder: "", url: "" },
+  image: { mode: "txt2img", models: {} },
 };
 
 /** Fixes data saved by earlier versions. */
@@ -207,6 +217,8 @@ function migrate(saved: State): State {
           !(p.id === "ollama" && p.settings.baseUrl === "http://127.0.0.1:11434") &&
           !(p.id === "lmstudio" && p.settings.baseUrl === "http://127.0.0.1:1234/v1"),
       ),
+    // Settings saved before a field existed take its default.
+    image: { ...seed.image, ...saved.image },
     // A reload mid-stream leaves messages marked as streaming.
     conversations: saved.conversations
       .map((c) => ({ ...c, messages: c.messages.map((m) => (m.streaming ? { ...m, streaming: false, status: undefined } : m)) }))
@@ -245,7 +257,7 @@ function saveSecrets(providers: Provider[]) {
 // The settings saved to data/state.json: everything but the chats, which are saved one file each.
 const SETTINGS_KEYS = [
   "providers", "harnesses", "selection", "harnessId", "activeId", "reasoning", "contextBar",
-  "showGpuLoad", "accent", "hotReload", "prompts", "settingsSize", "voice", "sound", "stopOnClose", "comfy",
+  "showGpuLoad", "accent", "hotReload", "prompts", "settingsSize", "voice", "sound", "stopOnClose", "comfy", "image",
 ] as const satisfies readonly (keyof State)[];
 
 function settingsOf(s: State) {
@@ -420,4 +432,9 @@ export function updateMessage(conversationId: string, messageId: string, update:
 
 export function updateComfy(change: Partial<ComfySettings>) {
   setState((s) => ({ ...s, comfy: { ...s.comfy, ...change } }));
+}
+
+/** Changes the image chat settings. */
+export function updateImage(change: Partial<ImageSettings>) {
+  setState((s) => ({ ...s, image: { ...s.image, ...change } }));
 }

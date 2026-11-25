@@ -7,12 +7,13 @@ import { Thread } from "./components/Thread";
 import { Composer } from "./components/Composer";
 import { SettingsDialog } from "./components/SettingsDialog";
 import { HarnessPanel } from "./components/HarnessPanel";
-import { DiffIcon, SidebarIcon, SlidersIcon } from "./components/Icons";
+import { SidebarIcon, SlidersIcon } from "./components/Icons";
 import { SystemMeters } from "./components/SystemMeters";
 import { RestartNotice } from "./components/RestartNotice";
 import { ChangesPane } from "./components/ChangesPane";
 import { VoiceChat } from "./components/VoiceChat";
 import { SoundChat } from "./components/SoundChat";
+import { ImageChat } from "./components/ImageChat";
 import { StopVoiceDialog } from "./components/StopVoiceDialog";
 import { stopVoiceServer, voiceServerRunning } from "./voice/client";
 
@@ -146,6 +147,8 @@ export function App() {
               <VoiceChat key={conversation.id} conversation={conversation} />
             ) : conversation?.kind === "sound" ? (
               <SoundChat key={conversation.id} conversation={conversation} />
+            ) : conversation?.kind === "image" ? (
+              <ImageChat key={conversation.id} />
             ) : (
               <>
                 <Thread conversation={conversation} />
@@ -154,6 +157,7 @@ export function App() {
                   onSend={(t) => void send(t)}
                   onStop={() => conversation && stop(conversation.id)}
                   context={context}
+                  changes={isText ? { open: changesOpen, onToggle: () => setChangesOpen((o) => !o) } : undefined}
                   settings={
                     <>
                       <h3 className="composer-sheet-title">{conversation?.kind ?? "text"} settings</h3>
@@ -172,15 +176,6 @@ export function App() {
       <HarnessPanel open={harnessOpen} onClose={() => setHarnessOpen(false)} />
       {settingsOpen && <SettingsDialog onClose={() => setSettingsOpen(false)} />}
       {askStopVoice && <StopVoiceDialog onClose={() => setAskStopVoice(false)} />}
-      {isText && (
-        <button
-          type="button" className={`corner-button ${changesOpen ? "is-active" : ""}`}
-          aria-label="Changes" aria-pressed={changesOpen} title="Changes"
-          onClick={() => setChangesOpen((o) => !o)}
-        >
-          <DiffIcon size={19} />
-        </button>
-      )}
     </div>
   );
 }

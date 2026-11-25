@@ -41,6 +41,12 @@ export async function settingOn(key: "hotReload" | "stopOnClose") {
   return state?.[key] === true;
 }
 
+/** Settings → ComfyUI as the page last saved them: whether it runs here, and a remote one's address. */
+export async function comfySettings() {
+  const state = (await readJson(STATE_FILE)) as { comfy?: { mode?: unknown; url?: unknown } } | null;
+  return { remote: state?.comfy?.mode === "remote", url: typeof state?.comfy?.url === "string" ? state.comfy.url : "" };
+}
+
 export async function readAll() {
   let state = await readJson(STATE_FILE);
   let names: string[] = [];

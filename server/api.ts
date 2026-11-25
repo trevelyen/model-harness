@@ -9,12 +9,13 @@ import { Readable } from "node:stream";
 import { fileURLToPath } from "node:url";
 import { pipeline } from "node:stream/promises";
 import { readHeader, reasoningSupport, type ReasoningSupport } from "./gguf.ts";
-import { deleteChat, isSafeId, readAll, settingOn, writeBackup, writeChat, writeState } from "./data.ts";
+import { comfySettings, deleteChat, isSafeId, readAll, settingOn, writeBackup, writeChat, writeState } from "./data.ts";
 import { piRuns, runPi, sendToRun, stopAllPi, type PiEndpoint, type PiRunRequest } from "./pi.ts";
 import { randomUUID } from "node:crypto";
 import { ensureVoice, stopVoice, voiceStatus, voiceTarget } from "./voice.ts";
-import { checkRemoteComfy, comfyPort, comfyStatus, killComfy, resizeTerminal, restartComfy, startComfy, stopComfy, typeIntoComfy, watchTerminal } from "./comfy.ts";
+import { checkRemoteComfy, comfyBase, comfyPort, comfyStatus, killComfy, resizeTerminal, restartComfy, startComfy, stopComfy, typeIntoComfy, watchTerminal } from "./comfy.ts";
 import { freePort, waitUntilAnswering } from "./net.ts";
+import { imageWorkflows } from "./image.ts";
 import { deleteChatSounds, handleMake, serveSound, SOUND_MODELS, soundStatus, stopSound } from "./sound.ts";
 
 const DROP_REQUEST_HEADERS = new Set([
@@ -505,6 +506,21 @@ async function handleComfy(req: IncomingMessage, res: ServerResponse, url: URL) 
   return sendJson(res, 200, comfyStatus());
 }
 
+/** The image workflows, and which of ComfyUI's models each can run. */
+async function handleWorkflows(res: ServerResponse) {
+  let base: string;
+  try {
+    base = comfyBase(await comfySettings());
+  } catch (error) {
+    return sendJson(res, 503, { error: (error as Error).message });
+  }
+  try {
+    return sendJson(res, 200, await imageWorkflows(base));
+  } catch (error) {
+    return sendJson(res, 502, { error: `Could not ask ComfyUI for its models: ${(error as Error).message}` });
+  }
+}
+
 export async function handle(req: IncomingMessage, res: ServerResponse, next: () => void) {
   if (!req.url?.startsWith("/api/")) return next();
   if (isCrossSite(req)) return sendJson(res, 403, { error: "Cross-site requests are not allowed" });
@@ -530,6 +546,7 @@ export async function handle(req: IncomingMessage, res: ServerResponse, next: ()
       return await forward(req, res, voiceTarget(await ensureVoice(), url.pathname, url.search));
     }
     if (url.pathname.startsWith("/api/comfy/")) return await handleComfy(req, res, url);
+    if (url.pathname === "/api/image/workflows") return await handleWorkflows(res);
     if (url.pathname === "/api/sound/models") return sendJson(res, 200, SOUND_MODELS);
     if (url.pathname === "/api/sound/make") {
       if (wrongMethod(req, res, "POST")) return;
@@ -649,7 +666,7 @@ export async function handle(req: IncomingMessage, res: ServerResponse, next: ()
 }
 
 // Files only a restart loads: the daemon's code, and what Vite reads at start.
-const DAEMON_FILES = ["server/api.ts", "server/daemon.ts", "server/data.ts", "server/gguf.ts", "server/net.ts", "server/pi.ts", "server/sound.ts", "server/voice.ts", "server/comfy.ts"];
+const DAEMON_FILES = ["server/api.ts", "server/daemon.ts", "server/data.ts", "server/gguf.ts", "server/net.ts", "server/pi.ts", "server/sound.ts", "server/voice.ts", "server/comfy.ts", "server/image.ts"];
 const APP_FILES = ["vite.config.ts", "package.json"];
 const daemonStartedAt = Date.now();
 let appStartedAt = Number(process.env.APP_STARTED_AT) || daemonStartedAt;

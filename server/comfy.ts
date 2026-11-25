@@ -222,6 +222,56 @@ export function comfyStatus() {
   };
 }
 
+/**
+ * Where the daemon reaches ComfyUI: the one it started, or the address given for
+ * one on another machine. Throws, saying what to do, when there is none.
+ */
+export function comfyBase(settings: { remote: boolean; url: string }) {
+  if (settings.remote) {
+    const base = settings.url.trim().replace(/\/+$/, "");
+    if (!/^https?:\/\/./.test(base)) throw new Error("Give ComfyUI's address in Settings → ComfyUI.");
+    return base;
+  }
+  const port = comfyPort();
+  if (!port) throw new Error("ComfyUI isn't running. Start it in Settings → ComfyUI.");
+  return `http://127.0.0.1:${port}`;
+}
+
+/**
+ * The loader nodes whose dropdowns say which files ComfyUI has, by the folder
+ * they read. GGUF needs the ComfyUI-GGUF custom nodes; without them those lists are empty.
+ */
+const LISTS = [
+  { node: "CheckpointLoaderSimple", input: "ckpt_name", folder: "checkpoint" },
+  { node: "UNETLoader", input: "unet_name", folder: "diffusion" },
+  { node: "UnetLoaderGGUF", input: "unet_name", folder: "gguf" },
+  { node: "CLIPLoader", input: "clip_name", folder: "textEncoder" },
+  { node: "CLIPLoaderGGUF", input: "clip_name", folder: "textEncoder" },
+  { node: "VAELoader", input: "vae_name", folder: "vae" },
+  { node: "LoraLoaderModelOnly", input: "lora_name", folder: "lora" },
+  { node: "UpscaleModelLoader", input: "model_name", folder: "upscale" },
+] as const;
+
+export type ComfyFolder = (typeof LISTS)[number]["folder"];
+
+/** The model files ComfyUI can load, by folder. */
+export async function comfyFiles(base: string) {
+  const files: Record<ComfyFolder, string[]> = { checkpoint: [], diffusion: [], gguf: [], textEncoder: [], vae: [], lora: [], upscale: [] };
+  await Promise.all(
+    LISTS.map(async ({ node, input, folder }) => {
+      const res = await fetch(`${base}/object_info/${node}`, { signal: AbortSignal.timeout(8000) });
+      if (!res.ok) throw new Error(`ComfyUI answered ${res.status}`);
+      const info = (await res.json()) as Record<string, { input?: { required?: Record<string, unknown[]> } }>;
+      // A node that isn't installed answers with nothing in it.
+      const spec = info[node]?.input?.required?.[input];
+      // Older ComfyUI gives the list first; newer gives "COMBO" and the list in its options.
+      const list = Array.isArray(spec?.[0]) ? spec[0] : (spec?.[1] as { options?: unknown[] } | undefined)?.options ?? [];
+      for (const file of list) if (typeof file === "string" && !files[folder].includes(file)) files[folder].push(file);
+    }),
+  );
+  return files;
+}
+
 /** Whether a remote ComfyUI answers, and its version. */
 export async function checkRemoteComfy(url: string) {
   const base = url.trim().replace(/\/+$/, "");

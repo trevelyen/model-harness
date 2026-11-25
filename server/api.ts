@@ -100,11 +100,38 @@ export interface LocalModel {
   total?: number;
   state: "ready" | "downloading" | "incomplete";
   reasoning?: ReasoningSupport;
+  facts?: ModelFacts;
+}
+
+/** What a model file or folder is, read from its GGUF header or config.json. */
+export interface ModelFacts {
+  format: "gguf" | "safetensors";
+  /** GGUF `general.architecture` or config.json `architectures[0]`. */
+  arch?: string;
+  /** Experts per MoE layer. Missing means dense. */
+  experts?: number;
+  /** How the weights are stored, e.g. "Q4_K_XL", "NVFP4", "FP8". */
+  quant?: string;
+  /** The most tokens the model was trained to handle in one conversation. */
+  trainedContext?: number;
 }
 
 // Browsers and download tools write to these before renaming to .gguf.
 const PARTIAL = /\.gguf\.(part|crdownload|download|incomplete|tmp)$/i;
 const ACTIVE_MS = 20_000;
+
+// llama.cpp's general.file_type ids, for files whose name doesn't say.
+const FILE_TYPES: Record<number, string> = {
+  0: "F32", 1: "F16", 2: "Q4_0", 3: "Q4_1", 7: "Q8_0", 8: "Q5_0", 9: "Q5_1", 10: "Q2_K", 11: "Q3_K_S", 12: "Q3_K_M",
+  13: "Q3_K_L", 14: "Q4_K_S", 15: "Q4_K_M", 16: "Q5_K_S", 17: "Q5_K_M", 18: "Q6_K", 32: "BF16", 38: "MXFP4",
+};
+
+// The quant in a name like "Qwen3.8-27B-UD-Q4_K_XL" or "Qwen3.6-35B-A3B-NVFP4".
+const QUANT_NAME = /(?:^|[-_.])((?:UD-)?I?Q\d_[A-Z0-9_]+|I?Q\d_\d|[BF]F16|F32|NVFP4|MXFP4|FP8)(?=$|[-_.])/i;
+
+function quantFromName(name: string) {
+  return name.match(QUANT_NAME)?.[1].replace(/^UD-/i, "").toUpperCase();
+}
 
 async function describe(path: string, fileName: string): Promise<LocalModel> {
   const info = await stat(path);
@@ -113,13 +140,62 @@ async function describe(path: string, fileName: string): Promise<LocalModel> {
   const partial = PARTIAL.test(fileName);
   const recent = Date.now() - info.mtimeMs < ACTIVE_MS;
   const complete = total !== undefined ? info.size >= total : !partial && !recent;
+  const name = fileName.replace(PARTIAL, "").replace(/\.gguf$/i, "");
   return {
     path,
-    name: fileName.replace(PARTIAL, "").replace(/\.gguf$/i, ""),
+    name,
     size: info.size,
     total,
     state: complete ? "ready" : recent ? "downloading" : "incomplete",
     reasoning: reasoningSupport(header?.chatTemplate),
+    facts: {
+      format: "gguf",
+      arch: header?.arch,
+      experts: header?.experts,
+      quant: quantFromName(name) ?? (header?.fileType !== undefined ? FILE_TYPES[header.fileType] : undefined),
+      trainedContext: header?.trainedContext,
+    },
+  };
+}
+
+async function readJsonFile(path: string): Promise<Record<string, any> | undefined> {
+  try {
+    return JSON.parse(await readFile(path, "utf8"));
+  } catch {
+    return undefined;
+  }
+}
+
+/** A Hugging Face checkpoint folder's chat template, from tokenizer_config.json or chat_template.jinja. */
+async function folderChatTemplate(dir: string): Promise<string | undefined> {
+  const fromConfig = (await readJsonFile(join(dir, "tokenizer_config.json")))?.chat_template;
+  if (typeof fromConfig === "string") return fromConfig;
+  return readFile(join(dir, "chat_template.jinja"), "utf8").catch(() => undefined);
+}
+
+/** A Hugging Face checkpoint folder: config.json beside .safetensors files. */
+async function describeFolder(dir: string, files: string[]): Promise<LocalModel | undefined> {
+  const config = await readJsonFile(join(dir, "config.json"));
+  if (!config) return undefined;
+  // Vision models keep the language model's settings in text_config.
+  const text = config.text_config ?? config;
+  let size = 0;
+  for (const file of files.filter((f) => f.endsWith(".safetensors"))) size += (await stat(join(dir, file))).size;
+  const name = basename(dir);
+  const quantMethod = config.quantization_config?.quant_method;
+  return {
+    path: dir,
+    name,
+    size,
+    state: "ready",
+    reasoning: reasoningSupport(await folderChatTemplate(dir)),
+    facts: {
+      format: "safetensors",
+      arch: Array.isArray(config.architectures) ? config.architectures[0] : undefined,
+      experts: text.num_experts ?? text.num_local_experts ?? text.n_routed_experts ?? undefined,
+      quant: quantFromName(name) ?? (typeof quantMethod === "string" ? quantMethod.toUpperCase() : config.torch_dtype?.toUpperCase?.()),
+      trainedContext: text.max_position_embeddings,
+    },
   };
 }
 
@@ -132,6 +208,11 @@ async function listGguf(dir: string, depth = 3): Promise<LocalModel[]> {
     return [];
   }
   const found: LocalModel[] = [];
+  const names = entries.map((e) => e.name);
+  if (names.includes("config.json") && names.some((n) => n.endsWith(".safetensors"))) {
+    const folder = await describeFolder(dir, names);
+    if (folder) return [folder];
+  }
   for (const entry of entries) {
     const full = join(dir, entry.name);
     if (entry.isDirectory()) {
@@ -206,7 +287,13 @@ function dropCaches(): Promise<boolean> {
   });
 }
 
+// The engines that run a local model. One GPU holds one at a time, so starting either stops the other.
+type Engine = "llama" | "freetoken";
+
+const ENGINE_NAMES: Record<Engine, string> = { llama: "llama-server", freetoken: "FreeToken" };
+
 interface LocalServer {
+  engine: Engine;
   startedAt: number;
   key: string;
   model: string;
@@ -214,7 +301,7 @@ interface LocalServer {
   process: ChildProcess;
   log: string[];
   ready: Promise<void>;
-  /** Tokens per conversation, as llama-server reports it once running. */
+  /** Tokens per conversation, as the engine reports it once running. */
   contextWindow?: number;
 }
 
@@ -228,21 +315,36 @@ function stopLocal() {
 }
 
 function waitForHealth(server: LocalServer, timeoutMs: number) {
+  const name = ENGINE_NAMES[server.engine];
   const stopped = () => {
     if (server.process.exitCode === null) return undefined;
     const log = server.log.slice(-15).join("\n");
-    const hint = /out of memory|unable to allocate CUDA/i.test(log)
-      ? "Not enough VRAM for this model. Clear GPU layers in Settings so it fits automatically, or set a lower number.\n\n"
-      : "";
-    return new Error(`${hint}llama-server exited (code ${server.process.exitCode}).\n${log}`);
+    const hint = !/out of memory|unable to allocate CUDA/i.test(log)
+      ? ""
+      : server.engine === "llama"
+        ? "Not enough VRAM for this model. Clear GPU layers in Settings so it fits automatically, or set a lower number.\n\n"
+        : "Not enough VRAM for this model. Try a smaller context size.\n\n";
+    return new Error(`${hint}${name} exited (code ${server.process.exitCode}).\n${log}`);
   };
-  return waitUntilAnswering(`http://127.0.0.1:${server.port}/health`, timeoutMs, stopped, "llama-server did not become ready in time");
+  const url = `http://127.0.0.1:${server.port}/health`;
+  if (server.engine === "llama") return waitUntilAnswering(url, timeoutMs, stopped, `${name} did not become ready in time`);
+  // FreeToken answers /health with 200 from the start, saying "loading", "ok" or "error".
+  return waitUntilAnswering(url, timeoutMs, stopped, `${name} did not become ready in time`, async (res) => {
+    const health = await res.json().catch(() => ({}));
+    if (health.status === "error") return new Error(`${name} failed to load the model: ${health.message ?? "no reason given"}`);
+    return health.status === "ok";
+  });
 }
 
-/** The context size llama-server actually settled on, which may differ from the one asked for. */
-async function readContextWindow(port: number): Promise<number | undefined> {
+/** The context size the engine actually settled on, which may differ from the one asked for. */
+async function readContextWindow(server: LocalServer): Promise<number | undefined> {
   try {
-    const res = await fetch(`http://127.0.0.1:${port}/props`);
+    if (server.engine === "freetoken") {
+      const res = await fetch(`http://127.0.0.1:${server.port}/v1/models`);
+      if (!res.ok) return undefined;
+      return (await res.json()).data?.[0]?.max_model_len;
+    }
+    const res = await fetch(`http://127.0.0.1:${server.port}/props`);
     if (!res.ok) return undefined;
     const props = await res.json();
     return props.default_generation_settings?.n_ctx ?? props.n_ctx;
@@ -252,6 +354,8 @@ async function readContextWindow(port: number): Promise<number | undefined> {
 }
 
 interface EnsureRequest {
+  /** Which engine runs it. Left out means llama-server. */
+  engine?: Engine;
   model: string;
   binary?: string;
   gpuLayers?: string;
@@ -261,13 +365,52 @@ interface EnsureRequest {
   extraArgs?: string;
 }
 
+/** The name requests use for a local model: its file or folder name. */
+function localModelId(model: string) {
+  return basename(model).replace(/\.gguf$/i, "");
+}
+
+/** What the running model says about thinking and context, from its GGUF header or checkpoint folder. */
+async function localModelInfo(model: string) {
+  const info = await stat(model);
+  if (info.isDirectory()) {
+    const config = await readJsonFile(join(model, "config.json"));
+    return {
+      reasoning: reasoningSupport(await folderChatTemplate(model)),
+      trainedContext: (config?.text_config ?? config)?.max_position_embeddings as number | undefined,
+    };
+  }
+  const header = await readHeader(model, info.size).catch(() => undefined);
+  return { reasoning: reasoningSupport(header?.chatTemplate), trainedContext: header?.trainedContext };
+}
+
+/**
+ * The environment an engine starts with. `ft` from a venv runs as if the venv were
+ * activated: FlashInfer builds its kernels with the venv's own ninja, found on PATH.
+ */
+function engineEnv(engine: Engine, binary: string): NodeJS.ProcessEnv {
+  if (engine !== "freetoken" || !binary.includes("/")) return process.env;
+  const bin = dirname(resolve(binary));
+  return { ...process.env, PATH: `${bin}:${process.env.PATH ?? ""}`, VIRTUAL_ENV: dirname(bin) };
+}
+
 /** Returns the running server, plus how long loading took when this call started it. */
 async function ensureLocal(options: EnsureRequest): Promise<{ server: LocalServer; loadMs?: number }> {
-  const binary = expandHome(options.binary?.trim() || "llama-server");
-  const args = ["-m", options.model, "--host", "127.0.0.1", "--jinja"];
-  if (options.gpuLayers?.trim()) args.push("-ngl", options.gpuLayers.trim());
-  if (options.contextSize?.trim()) args.push("-c", options.contextSize.trim());
-  if (options.kvCache === "q8_0") args.push("-ctk", "q8_0", "-ctv", "q8_0");
+  const engine = options.engine ?? "llama";
+  let binary: string;
+  const args: string[] = [];
+  if (engine === "freetoken") {
+    binary = expandHome(options.binary?.trim() || "ft");
+    // A fixed model id, so requests can name it without asking /v1/models first.
+    args.push("serve", "--model", options.model, "--host", "127.0.0.1", "--served-model-name", localModelId(options.model));
+    if (options.contextSize?.trim()) args.push("--max-seq-len-override", options.contextSize.trim());
+  } else {
+    binary = expandHome(options.binary?.trim() || "llama-server");
+    args.push("-m", options.model, "--host", "127.0.0.1", "--jinja");
+    if (options.gpuLayers?.trim()) args.push("-ngl", options.gpuLayers.trim());
+    if (options.contextSize?.trim()) args.push("-c", options.contextSize.trim());
+    if (options.kvCache === "q8_0") args.push("-ctk", "q8_0", "-ctv", "q8_0");
+  }
   if (options.extraArgs?.trim()) args.push(...options.extraArgs.trim().split(/\s+/));
   const key = JSON.stringify([binary, args]);
   if (local?.key === key && local.process.exitCode === null) {
@@ -277,8 +420,8 @@ async function ensureLocal(options: EnsureRequest): Promise<{ server: LocalServe
   stopLocal();
   const startedAt = Date.now();
   const port = await freePort();
-  const child = spawn(binary, [...args, "--port", String(port)], { stdio: ["ignore", "pipe", "pipe"] });
-  const server: LocalServer = { key, model: options.model, port, process: child, log: [], ready: Promise.resolve(), startedAt: Date.now() };
+  const child = spawn(binary, [...args, "--port", String(port)], { stdio: ["ignore", "pipe", "pipe"], env: engineEnv(engine, binary) });
+  const server: LocalServer = { engine, key, model: options.model, port, process: child, log: [], ready: Promise.resolve(), startedAt: Date.now() };
   const collect = (data: Buffer) => {
     server.log.push(...data.toString().split("\n").filter(Boolean));
     if (server.log.length > 200) server.log.splice(0, server.log.length - 200);
@@ -287,10 +430,17 @@ async function ensureLocal(options: EnsureRequest): Promise<{ server: LocalServe
   child.stderr?.on("data", collect);
   const spawnError = new Promise<never>((_, reject) =>
     child.on("error", (error) =>
-      reject(new Error(`Could not start ${binary}: ${error.message}. Install llama.cpp or set the binary path in Settings.`)),
+      reject(
+        new Error(
+          engine === "llama"
+            ? `Could not start ${binary}: ${error.message}. Install llama.cpp or set the binary path in Settings.`
+            : `Could not start ${binary}: ${error.message}. Install FreeToken (uv pip install "freetoken[accel]") or set the ft path in Settings.`,
+        ),
+      ),
     ),
   );
-  server.ready = Promise.race([waitForHealth(server, 10 * 60_000), spawnError]);
+  // FreeToken compiles its CUDA kernels the first time, which can take a while.
+  server.ready = Promise.race([waitForHealth(server, (engine === "llama" ? 10 : 30) * 60_000), spawnError]);
   local = server;
   try {
     await server.ready;
@@ -302,15 +452,35 @@ async function ensureLocal(options: EnsureRequest): Promise<{ server: LocalServe
   return { server, loadMs: Date.now() - startedAt };
 }
 
-/** The folders inside `dir`, for the folder browser. Hidden ones come last. */
-async function listFolders(dir: string) {
-  const path = resolve(expandHome(dir || "~"));
+const byName = (x: string, y: string) => Number(x.startsWith(".")) - Number(y.startsWith(".")) || x.localeCompare(y);
+
+/**
+ * The folders inside `dir`, for the path picker, and its files when `withFiles` is set.
+ * Hidden ones come last. When `dir` is a file, lists its folder with that file `selected`.
+ */
+async function listFolders(dir: string, withFiles = false) {
+  let path = resolve(expandHome(dir || "~"));
+  let selected: string | undefined;
+  if (withFiles && (await stat(path).catch(() => undefined))?.isFile()) {
+    selected = basename(path);
+    path = dirname(path);
+  }
   const entries = await readdir(path, { withFileTypes: true });
-  const folders = entries
-    .filter((e) => e.isDirectory() || (e.isSymbolicLink() && !e.name.startsWith(".")))
-    .map((e) => e.name)
-    .sort((x, y) => Number(x.startsWith(".")) - Number(y.startsWith(".")) || x.localeCompare(y));
-  return { path, parent: dirname(path) === path ? null : dirname(path), home: homedir(), folders };
+  const folders: string[] = [];
+  const files: { name: string; size: number; executable: boolean }[] = [];
+  for (const e of entries) {
+    // A link counts as what it points to; a broken one is left out.
+    const info = e.isSymbolicLink() ? await stat(join(path, e.name)).catch(() => undefined) : e;
+    if (!info) continue;
+    if (info.isDirectory()) folders.push(e.name);
+    else if (withFiles && info.isFile()) {
+      const full = await stat(join(path, e.name)).catch(() => undefined);
+      if (full) files.push({ name: e.name, size: full.size, executable: (full.mode & 0o111) !== 0 });
+    }
+  }
+  folders.sort(byName);
+  files.sort((x, y) => byName(x.name, y.name));
+  return { path, parent: dirname(path) === path ? null : dirname(path), home: homedir(), folders, ...(withFiles && { files, selected }) };
 }
 
 interface PiRequest extends PiRunRequest {
@@ -318,20 +488,19 @@ interface PiRequest extends PiRunRequest {
   model: string;
 }
 
-/** Works out where pi should send model requests, starting llama-server first for a local GGUF. */
+/** Works out where pi should send model requests, starting the local engine first for a local model. */
 async function piEndpoint({ provider, model }: PiRequest): Promise<{ endpoint: PiEndpoint; initial: object[] }> {
   const { adapter, settings } = provider;
-  if (adapter === "llamacpp") {
-    const { server, loadMs } = await ensureLocal({ ...settings, model });
-    server.contextWindow ??= await readContextWindow(server.port);
-    const header = await readHeader(server.model, (await stat(server.model)).size).catch(() => undefined);
-    const reasoning = reasoningSupport(header?.chatTemplate);
+  if (adapter === "llamacpp" || adapter === "freetoken") {
+    const { server, loadMs } = await ensureLocal({ ...settings, model, engine: adapter === "freetoken" ? "freetoken" : "llama" });
+    server.contextWindow ??= await readContextWindow(server);
+    const { reasoning, trainedContext } = await localModelInfo(server.model);
     return {
       endpoint: {
         api: "openai-completions",
-        // Through the daemon rather than straight to llama-server; see /api/llama/ in handle().
+        // Through the daemon rather than straight to the engine; see /api/llama/ in handle().
         baseUrl: `http://127.0.0.1:${process.env.API_PORT}/api/llama/v1`,
-        model: basename(server.model).replace(/\.gguf$/i, ""),
+        model: localModelId(server.model),
         reasoning: !!reasoning?.toggle,
         contextWindow: server.contextWindow,
         // Qwen and Gemma switch thinking through the chat template, not an effort field.
@@ -340,7 +509,7 @@ async function piEndpoint({ provider, model }: PiRequest): Promise<{ endpoint: P
           : undefined,
         local: true,
       },
-      initial: [{ type: "usage", loadMs, contextWindow: server.contextWindow, modelContext: header?.trainedContext }],
+      initial: [{ type: "usage", loadMs, contextWindow: server.contextWindow, modelContext: trainedContext }],
     };
   }
   if (adapter === "openai" || adapter === "ollama") {
@@ -526,10 +695,10 @@ export async function handle(req: IncomingMessage, res: ServerResponse, next: ()
   if (isCrossSite(req)) return sendJson(res, 403, { error: "Cross-site requests are not allowed" });
   const url = new URL(req.url, "http://localhost");
   try {
-    // pi reaches llama-server through here. Bun, which pi runs on, reuses a connection
-    // llama-server has closed after a few requests and fails with ECONNRESET; Node does not.
+    // pi and the page reach the local engine through here. Bun, which pi runs on, reuses a
+    // connection llama-server has closed after a few requests and fails with ECONNRESET; Node does not.
     if (url.pathname.startsWith("/api/llama/")) {
-      if (!local || local.process.exitCode !== null) return sendJson(res, 503, { error: "llama-server is not running" });
+      if (!local || local.process.exitCode !== null) return sendJson(res, 503, { error: "No local model is running" });
       return await forward(req, res, `http://127.0.0.1:${local.port}/${url.pathname.slice("/api/llama/".length)}${url.search}`);
     }
     if (url.pathname === "/api/voice/llm") {
@@ -601,20 +770,21 @@ export async function handle(req: IncomingMessage, res: ServerResponse, next: ()
         const options = await readJson<EnsureRequest>(req, {});
         if (!options.model) return sendJson(res, 400, { error: "No model given" });
         const { server, loadMs } = await ensureLocal(options);
-        const header = await readHeader(server.model, (await stat(server.model)).size).catch(() => undefined);
-        server.contextWindow ??= await readContextWindow(server.port);
+        const { reasoning, trainedContext } = await localModelInfo(server.model);
+        server.contextWindow ??= await readContextWindow(server);
         return sendJson(res, 200, {
           port: server.port,
           model: basename(server.model),
+          modelId: localModelId(server.model),
           loadMs,
-          reasoning: reasoningSupport(header?.chatTemplate),
+          reasoning,
           contextWindow: server.contextWindow,
-          modelContext: header?.trainedContext,
+          modelContext: trainedContext,
         });
       }
       case "/api/fs/folders":
         try {
-          return sendJson(res, 200, await listFolders(url.searchParams.get("dir") ?? ""));
+          return sendJson(res, 200, await listFolders(url.searchParams.get("dir") ?? "", url.searchParams.has("files")));
         } catch (error) {
           return sendJson(res, 400, { error: `Cannot open that folder: ${(error as NodeJS.ErrnoException).code ?? (error as Error).message}` });
         }
@@ -648,7 +818,7 @@ export async function handle(req: IncomingMessage, res: ServerResponse, next: ()
       case "/api/system":
         return sendJson(res, 200, await systemStats());
       case "/api/local/status":
-        return sendJson(res, 200, local ? { running: true, port: local.port, model: basename(local.model), log: local.log.slice(-30) } : { running: false });
+        return sendJson(res, 200, local && local.process.exitCode === null ? { running: true, engine: local.engine, port: local.port, model: basename(local.model), log: local.log.slice(-30) } : { running: false });
       case "/api/local/stop":
         stopLocal();
         return sendJson(res, 200, { running: false });
@@ -749,6 +919,7 @@ export async function appStatus(restartPending: string | null, detail = false) {
     llamaServer: llama
       ? {
           running: true,
+          engine: llama.engine,
           model: basename(llama.model),
           port: llama.port,
           pid: llama.process.pid,
@@ -764,7 +935,7 @@ export async function appStatus(restartPending: string | null, detail = false) {
   };
 }
 
-/** Stops every pi run and llama-server, before the daemon exits. */
+/** Stops every pi run and the local engine, before the daemon exits. */
 export function stopAll() {
   stopAllPi();
   stopLocal();

@@ -94,12 +94,28 @@ export interface ModelInfo {
   reasoning?: ReasoningSupport;
   /** Set while the model is still downloading, or stopped partway. */
   download?: { received: number; total?: number; active: boolean };
+  /** What a local model is. Missing for models a server lists. */
+  facts?: ModelFacts;
+}
+
+/** What a model file or folder is, read from its GGUF header or config.json. */
+export interface ModelFacts {
+  format: "gguf" | "safetensors";
+  /** GGUF `general.architecture` or config.json `architectures[0]`, e.g. "qwen35", "Qwen3MoeForCausalLM". */
+  arch?: string;
+  /** Experts per MoE layer. Missing means dense. */
+  experts?: number;
+  /** How the weights are stored, e.g. "Q4_K_XL", "NVFP4", "FP8". */
+  quant?: string;
+  /** The most tokens the model was trained to handle in one conversation. */
+  trainedContext?: number;
 }
 
 export interface ConfigField {
   key: string;
   label: string;
-  type: "text" | "password" | "url" | "number";
+  /** "folder" and "file" add a Browse button that opens the path picker. */
+  type: "text" | "password" | "url" | "number" | "folder" | "file";
   placeholder?: string;
   help?: string;
 }

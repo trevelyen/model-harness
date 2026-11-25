@@ -1,4 +1,4 @@
-// Reads a GGUF file's header: its final size and its chat template.
+// Reads a GGUF file's header: its final size, its chat template and what kind of model it is.
 // The header lists every tensor's type, shape and offset, so a download that
 // has fetched the first few MB already tells us how big it will be.
 import { open } from "node:fs/promises";
@@ -59,6 +59,12 @@ export interface GgufHeader {
   chatTemplate?: string;
   /** The most tokens the model was trained to handle in one conversation. */
   trainedContext?: number;
+  /** `general.architecture`, e.g. "qwen35" or "gemma4". */
+  arch?: string;
+  /** Experts per MoE layer. Missing for a dense model. */
+  experts?: number;
+  /** `general.file_type`, llama.cpp's id for how the weights are quantized. */
+  fileType?: number;
 }
 
 function parse(buf: Buffer): GgufHeader {
@@ -72,6 +78,9 @@ function parse(buf: Buffer): GgufHeader {
   let alignment = 32;
   let chatTemplate: string | undefined;
   let trainedContext: number | undefined;
+  let arch: string | undefined;
+  let experts: number | undefined;
+  let fileType: number | undefined;
   for (let i = 0; i < kvCount; i++) {
     const key = r.string();
     const type = r.u32();
@@ -79,6 +88,9 @@ function parse(buf: Buffer): GgufHeader {
     else if (key === "tokenizer.chat_template" && type === 8) chatTemplate = r.string();
     else if (key.endsWith(".context_length") && type === 4) trainedContext = r.u32();
     else if (key.endsWith(".context_length") && type === 10) trainedContext = r.u64();
+    else if (key === "general.architecture" && type === 8) arch = r.string();
+    else if (key.endsWith(".expert_count") && type === 4) experts = r.u32();
+    else if (key === "general.file_type" && type === 4) fileType = r.u32();
     else skipValue(r, type);
   }
   let end = 0;
@@ -94,7 +106,7 @@ function parse(buf: Buffer): GgufHeader {
     end = Math.max(end, offset + (elements / size[0]) * size[1]);
   }
   const dataStart = Math.ceil(r.pos / alignment) * alignment;
-  return { total: dataStart + end, chatTemplate, trainedContext };
+  return { total: dataStart + end, chatTemplate, trainedContext, arch, experts: experts || undefined, fileType };
 }
 
 const cache = new Map<string, GgufHeader>();

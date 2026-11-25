@@ -2,13 +2,16 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { getModelAdapter } from "../adapters/registry";
 import type { ModelInfo } from "../adapters/types";
 import { getState, setState, useStore, type Provider } from "../state/store";
-import { CheckIcon, ChevronDownIcon, SearchIcon } from "./Icons";
+import { CheckIcon, ChevronDownIcon, ChevronRightIcon, SearchIcon } from "./Icons";
 import { ProgressRing } from "./ProgressRing";
 import { useDismiss } from "../lib/useDismiss";
 
 type Listing = { state: "loading" } | { state: "ok"; models: ModelInfo[] } | { state: "error"; message: string };
 
 const POLL_MS = 1500;
+
+// One shared empty list: a new [] on every read makes useStore re-render forever.
+const NONE_COLLAPSED: string[] = [];
 
 /** Bytes per second for each downloading model, smoothed across polls. */
 function useRates() {
@@ -128,6 +131,7 @@ export function ModelPicker() {
   useSyncSelection();
   const providers = useStore((s) => s.providers);
   const selection = useStore((s) => s.selection);
+  const collapsed = useStore((s) => s.collapsedProviders ?? NONE_COLLAPSED);
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const { listings, rates } = useListings(providers, open);
@@ -147,6 +151,12 @@ export function ModelPicker() {
       }),
     [providers, listings, q],
   );
+
+  const toggle = (id: string) =>
+    setState((s) => {
+      const shut = s.collapsedProviders ?? [];
+      return { ...s, collapsedProviders: shut.includes(id) ? shut.filter((x) => x !== id) : [...shut, id] };
+    });
 
   const choose = (provider: Provider, model: ModelInfo) => {
     setState((s) => ({
@@ -174,24 +184,34 @@ export function ModelPicker() {
               <div className="picker-note">No providers are reachable. Check them in Settings.</div>
             )}
             {/* Providers that cannot be reached are hidden; Settings shows why. */}
-            {sections.filter(({ listing }) => listing?.state !== "error").map(({ provider, listing, models }) => (
-              <section key={provider.id}>
-                <h4>{provider.name}</h4>
-                {(!listing || listing.state === "loading") && <div className="picker-note shimmer">Looking for models</div>}
-                {listing?.state === "ok" && models.length === 0 && <div className="picker-note">{q ? "No matches" : "No models found"}</div>}
-                {models.map((m) => {
-                  if (m.download) return <DownloadRow key={m.id} model={m} rate={rates(m.id)} />;
-                  const active = selection?.providerId === provider.id && selection.model === m.id;
-                  return (
-                    <button key={m.id} className={`picker-item ${active ? "is-active" : ""}`} onClick={() => choose(provider, m)}>
-                      <span className="picker-item-name">{m.label ?? m.id}</span>
-                      {m.detail && <span className="picker-item-detail">{m.detail}</span>}
-                      {active && <CheckIcon size={15} />}
+            {sections.filter(({ listing }) => listing?.state !== "error").map(({ provider, listing, models }) => {
+              // A search opens every provider, so no match hides in a folded one.
+              const shut = !q && collapsed.includes(provider.id);
+              return (
+                <section key={provider.id}>
+                  <h4>
+                    <button className="picker-heading" aria-expanded={!shut} onClick={() => toggle(provider.id)}>
+                      {shut ? <ChevronRightIcon size={13} /> : <ChevronDownIcon size={13} />}
+                      <span>{provider.name}</span>
+                      {shut && listing?.state === "ok" && <span className="picker-heading-count">{models.length}</span>}
                     </button>
-                  );
-                })}
-              </section>
-            ))}
+                  </h4>
+                  {!shut && (!listing || listing.state === "loading") && <div className="picker-note shimmer">Looking for models</div>}
+                  {!shut && listing?.state === "ok" && models.length === 0 && <div className="picker-note">{q ? "No matches" : "No models found"}</div>}
+                  {!shut && models.map((m) => {
+                    if (m.download) return <DownloadRow key={m.id} model={m} rate={rates(m.id)} />;
+                    const active = selection?.providerId === provider.id && selection.model === m.id;
+                    return (
+                      <button key={m.id} className={`picker-item ${active ? "is-active" : ""}`} onClick={() => choose(provider, m)}>
+                        <span className="picker-item-name">{m.label ?? m.id}</span>
+                        {m.detail && <span className="picker-item-detail">{m.detail}</span>}
+                        {active && <CheckIcon size={15} />}
+                      </button>
+                    );
+                  })}
+                </section>
+              );
+            })}
           </div>
         </div>
       )}

@@ -1,5 +1,6 @@
 import { useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from "react";
 import { getModelAdapter, modelAdapters } from "../adapters/registry";
+import { PathInput } from "./PathPicker";
 import { saveNow, setState, uid, updateVoice, useStore, type Provider } from "../state/store";
 import { errorText } from "../lib/http";
 import { ColorPicker } from "./ColorPicker";
@@ -46,12 +47,22 @@ function ProviderEditor({ provider }: { provider: Provider }) {
       <p className="adapter-note"><strong>{adapter.label}.</strong> {adapter.description}</p>
       {adapter.fields.map((f) => (
         <Field key={f.key} label={f.label} hint={f.help}>
-          <input
-            type={f.type === "password" ? "password" : f.type === "number" ? "number" : "text"}
-            placeholder={f.placeholder}
-            value={provider.settings[f.key] ?? ""}
-            onChange={(e) => update({ settings: { ...provider.settings, [f.key]: e.target.value } })}
-          />
+          {f.type === "folder" || f.type === "file" ? (
+            <PathInput
+              mode={f.type}
+              executables={f.type === "file"}
+              placeholder={f.placeholder}
+              value={provider.settings[f.key] ?? ""}
+              onChange={(path) => update({ settings: { ...provider.settings, [f.key]: path } })}
+            />
+          ) : (
+            <input
+              type={f.type === "password" ? "password" : f.type === "number" ? "number" : "text"}
+              placeholder={f.placeholder}
+              value={provider.settings[f.key] ?? ""}
+              onChange={(e) => update({ settings: { ...provider.settings, [f.key]: e.target.value } })}
+            />
+          )}
         </Field>
       ))}
       <div className="provider-actions">

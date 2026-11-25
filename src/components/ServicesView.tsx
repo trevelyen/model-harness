@@ -12,7 +12,7 @@ interface Status {
   piRuns: { chat: string; startedAt: string }[];
   llamaServer:
     | { running: false }
-    | { running: true; model: string; port: number; pid: number; contextWindow?: number; startedAt: string; gpuMemory?: number; log?: string[] };
+    | { running: true; engine?: "llama" | "freetoken"; model: string; port: number; pid: number; contextWindow?: number; startedAt: string; gpuMemory?: number; log?: string[] };
   voiceServer:
     | { state: "stopped" }
     | { state: "starting" | "running"; port: number; pid: number; startedAt: string; gpuMemory?: number; log?: string[] };
@@ -148,7 +148,7 @@ export function ServicesView() {
         note={restartNote(daemon.unloadedChanges)}
       />
       <Service
-        name="llama-server"
+        name={llama.running && llama.engine === "freetoken" ? "FreeToken" : "llama-server"}
         state={llama.running ? "running" : "stopped"}
         details={
           llama.running

@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
 import { updateComfy, useStore } from "../state/store";
 import { errorText } from "../lib/http";
-import { AlertIcon, CheckIcon, FolderIcon, PlayIcon, RefreshIcon, StopIcon } from "./Icons";
-import { FolderPicker } from "./FolderPicker";
+import { AlertIcon, CheckIcon, PlayIcon, RefreshIcon, StopIcon } from "./Icons";
+import { PathInput } from "./PathPicker";
 import { Field } from "./Field";
 import { Segmented } from "./Segmented";
 import { uptime } from "./ServicesView";
@@ -30,7 +30,6 @@ const BUSY: Record<Action, string> = { start: "Starting", restart: "Restarting",
 
 function LocalComfy() {
   const folder = useStore((s) => s.comfy.folder);
-  const [browsing, setBrowsing] = useState(false);
   const [status, setStatus] = useState<LocalStatus>({ state: "stopped" });
   const [busy, setBusy] = useState<Action | null>(null);
   const [error, setError] = useState("");
@@ -74,22 +73,7 @@ function LocalComfy() {
   return (
     <>
       <Field label="ComfyUI folder" hint="The folder ComfyUI was cloned into, with its main.py. It runs with that folder's venv when it has one, else python3.">
-        <div className="folder-input">
-          <input placeholder="~/ComfyUI" value={folder} spellCheck={false} onChange={(e) => updateComfy({ folder: e.target.value })} />
-          <button type="button" className="icon-button" aria-label="Browse for a folder" title="Browse" onClick={() => setBrowsing(true)}>
-            <FolderIcon size={16} />
-          </button>
-        </div>
-        {browsing && (
-          <FolderPicker
-            initial={folder}
-            onClose={() => setBrowsing(false)}
-            onPick={(path) => {
-              updateComfy({ folder: path });
-              setBrowsing(false);
-            }}
-          />
-        )}
+        <PathInput placeholder="~/ComfyUI" value={folder} onChange={(path) => updateComfy({ folder: path })} />
       </Field>
       <div className="setting-row">
         <div className="comfy-status">

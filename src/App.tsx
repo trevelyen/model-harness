@@ -43,7 +43,7 @@ export function App() {
   // Other backends only say what it is in a reply.
   const localLimit = useStore((s) => {
     const provider = s.providers.find((p) => p.id === s.selection?.providerId);
-    return provider?.adapter === "llamacpp" ? Number(provider.settings.contextSize) || undefined : undefined;
+    return provider?.adapter === "llamacpp" || provider?.adapter === "freetoken" ? Number(provider.settings.contextSize) || undefined : undefined;
   });
   const limit = localLimit ?? lastUsage?.contextWindow;
   const modelMax = conversation?.messages.findLast((m) => m.usage?.modelContext)?.usage?.modelContext;

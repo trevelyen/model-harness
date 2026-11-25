@@ -86,6 +86,7 @@ Add them in Settings (gear icon, bottom left), Add provider.
 | Adapter | Covers | Setting |
 | ------- | ------ | ------- |
 | Local GGUF (`llamacpp.ts`) | `.gguf` files in a folder. The server starts `llama-server` for the chosen file and keeps it running until you pick another. | Models folder, default `./models` |
+| FreeToken (`freetoken.ts`) | GGUFs FreeToken can run, and Hugging Face checkpoint folders (`config.json` beside `.safetensors` files). The server starts `ft serve` for the chosen model, in place of llama-server. | Models folder, `ft` path |
 | OpenAI compatible (`openai.ts`) | llama.cpp server, LM Studio, vLLM, SGLang, OpenRouter, OpenAI | Base URL ending in `/v1`, API key if the service needs one |
 | Ollama (`ollama.ts`) | Ollama's native API | Base URL, default `http://127.0.0.1:11434` |
 | Anthropic (`anthropic.ts`) | Claude through the Messages API | API key |
@@ -95,6 +96,17 @@ Requests go through the server's proxy (`/api/proxy`), so endpoints work whateve
 API keys have to be typed into Settings by the user. They're kept in the browser's localStorage and are never written to disk, so they can't be set up from a file.
 
 For models bigger than your VRAM that fail to load, clear GPU layers in the Local GGUF settings so llama-server fits what it can, or set a lower number.
+
+### FreeToken
+
+[FreeToken](https://github.com/FlashML-org/FreeToken) runs MoE models bigger than your VRAM fast, by keeping the busy experts on the GPU and the rest in RAM. The model menu marks MoE models with "MoE". It needs Linux, an NVIDIA GPU, and the CUDA 13 toolkit with `nvcc` on your `PATH`.
+
+```bash
+uv venv ~/freetoken && source ~/freetoken/bin/activate
+uv pip install "freetoken[accel]"
+```
+
+Then add a FreeToken provider in Settings and set its `ft` path to `~/freetoken/bin/ft`. The first model you load compiles FreeToken's CUDA kernels, which takes a few minutes. Only one engine runs at a time, so picking a FreeToken model stops llama-server, and the other way round.
 
 ## Thinking
 

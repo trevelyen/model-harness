@@ -121,6 +121,8 @@ export interface State {
   prompts: SavedPrompt[];
   /** The settings dialog's size once dragged. Absent, it uses the default from the CSS. */
   settingsSize?: { width: number; height: number };
+  /** Providers folded shut in the model menu, by id. */
+  collapsedProviders?: string[];
   /** When the last page closes, the daemon stops llama-server and the voice server. Read by server/api.ts. */
   stopOnClose: boolean;
   /** Voice chats: the service, each service's settings as changed in the sheet, and whether the mic is used. */
@@ -257,7 +259,7 @@ function saveSecrets(providers: Provider[]) {
 // The settings saved to data/state.json: everything but the chats, which are saved one file each.
 const SETTINGS_KEYS = [
   "providers", "harnesses", "selection", "harnessId", "activeId", "reasoning", "contextBar",
-  "showGpuLoad", "accent", "hotReload", "prompts", "settingsSize", "voice", "sound", "stopOnClose", "comfy", "image",
+  "showGpuLoad", "accent", "hotReload", "prompts", "settingsSize", "collapsedProviders", "voice", "sound", "stopOnClose", "comfy", "image",
 ] as const satisfies readonly (keyof State)[];
 
 function settingsOf(s: State) {

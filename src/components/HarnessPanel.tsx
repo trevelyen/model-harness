@@ -5,12 +5,12 @@ import type { AgentLoop, HarnessDefinition } from "../harnesses/types";
 import type { GenerationParams } from "../adapters/types";
 import { setState, uid, useStore, type SavedPrompt } from "../state/store";
 import { useEffect, useRef, useState } from "react";
-import { FolderPicker } from "./FolderPicker";
+import { PathInput } from "./PathPicker";
 import { Range } from "./Range";
 import { Switch } from "./Switch";
 import { Segmented } from "./Segmented";
 import { Field } from "./Field";
-import { CheckIcon, ChevronDownIcon, FolderIcon, PlusIcon, SaveIcon, TrashIcon, XIcon } from "./Icons";
+import { CheckIcon, ChevronDownIcon, PlusIcon, SaveIcon, TrashIcon, XIcon } from "./Icons";
 import { useDismiss } from "../lib/useDismiss";
 
 const TABS = ["Settings", "Tools", "Agent loop", "Hooks"] as const;
@@ -68,7 +68,7 @@ function TokenSlider({ label, hint, steps, value, offLabel, onChange }: {
 
 /**
  * The local model's context limit. It belongs to the provider rather than the
- * harness, since llama-server is started with it, so it applies to every chat.
+ * harness, since the engine is started with it, so it applies to every chat.
  */
 function ContextSlider() {
   const provider = useStore((s) => s.providers.find((p) => p.id === s.selection?.providerId));
@@ -76,7 +76,7 @@ function ContextSlider() {
   const modelMax = useStore((s) =>
     s.conversations.find((c) => c.id === s.activeId)?.messages.findLast((m) => m.usage?.modelContext)?.usage?.modelContext,
   );
-  if (provider?.adapter !== "llamacpp") return null;
+  if (provider?.adapter !== "llamacpp" && provider?.adapter !== "freetoken") return null;
 
   const setSetting = (key: string, value: string) =>
     setState((s) => ({
@@ -94,12 +94,15 @@ function ContextSlider() {
         onChange={(n) => setSetting("contextSize", String(n))}
         hint="Most the whole chat can hold. Higher = longer chats, more VRAM. The model reloads on your next message."
       />
-      <Toggle
-        label="Half-size cache"
-        on={halfCache}
-        onChange={(on) => setSetting("kvCache", on ? "q8_0" : "")}
-        hint="Stores the context at 8-bit, so the same VRAM holds about twice as much. Quality barely changes. The model reloads on your next message."
-      />
+      {/* FreeToken picks its own cache format. */}
+      {provider.adapter === "llamacpp" && (
+        <Toggle
+          label="Half-size cache"
+          on={halfCache}
+          onChange={(on) => setSetting("kvCache", on ? "q8_0" : "")}
+          hint="Stores the context at 8-bit, so the same VRAM holds about twice as much. Quality barely changes. The model reloads on your next message."
+        />
+      )}
     </>
   );
 }
@@ -342,7 +345,6 @@ function AgentLoopTab({ loop, onChange }: { loop: AgentLoop; onChange: (patch: P
 
 export function HarnessPanel({ open, onClose }: { open: boolean; onClose: () => void }) {
   const { harnesses, current } = useActiveHarness();
-  const [browsing, setBrowsing] = useState(false);
   const [tab, setTab] = useState<Tab>("Settings");
   const kind = getHarnessAdapter(current.kind);
   const params = current.params;
@@ -404,32 +406,19 @@ export function HarnessPanel({ open, onClose }: { open: boolean; onClose: () => 
               label="Working folder"
               hint="pi reads, edits and runs commands in this folder without asking first. Pick one you're happy for it to change."
             >
-              <div className="folder-input">
-                <input
-                  placeholder="~/code/my-project"
-                  value={current.options.cwd ?? ""}
-                  onChange={(e) => update(current.id, { options: { ...current.options, cwd: e.target.value } })}
-                />
-                <button type="button" className="icon-button" aria-label="Browse for a folder" title="Browse" onClick={() => setBrowsing(true)}>
-                  <FolderIcon size={16} />
-                </button>
-              </div>
-              {browsing && (
-                <FolderPicker
-                  initial={current.options.cwd ?? ""}
-                  onClose={() => setBrowsing(false)}
-                  onPick={(path) => {
-                    update(current.id, { options: { ...current.options, cwd: path } });
-                    setBrowsing(false);
-                  }}
-                />
-              )}
+              <PathInput
+                placeholder="~/code/my-project"
+                value={current.options.cwd ?? ""}
+                onChange={(path) => update(current.id, { options: { ...current.options, cwd: path } })}
+              />
             </Field>
             <Field label="pi command" hint="Empty runs pi from your PATH. The system prompt below replaces pi's own coding prompt; leave it empty to keep pi's.">
-              <input
+              <PathInput
+                mode="file"
+                executables
                 placeholder="pi"
                 value={current.options.command ?? ""}
-                onChange={(e) => update(current.id, { options: { ...current.options, command: e.target.value } })}
+                onChange={(path) => update(current.id, { options: { ...current.options, command: path } })}
               />
             </Field>
           </>

@@ -14,18 +14,29 @@ export function freePort(): Promise<number> {
 /**
  * Waits until `url` answers OK, checking twice a second. Throws what `stopped`
  * returns once the process behind it has died, or `late` after `timeoutMs`.
+ * `ready` looks at an OK answer for servers that answer before they're ready:
+ * false keeps waiting, and an Error gives up with it.
  */
-export async function waitUntilAnswering(url: string, timeoutMs: number, stopped: () => Error | undefined, late: string) {
+export async function waitUntilAnswering(
+  url: string,
+  timeoutMs: number,
+  stopped: () => Error | undefined,
+  late: string,
+  ready?: (res: Response) => Promise<boolean | Error>,
+) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     const error = stopped();
     if (error) throw error;
+    let verdict: boolean | Error = false;
     try {
       const res = await fetch(url);
-      if (res.ok) return;
+      if (res.ok) verdict = ready ? await ready(res) : true;
     } catch {
       // Not listening yet.
     }
+    if (verdict instanceof Error) throw verdict;
+    if (verdict) return;
     await new Promise((r) => setTimeout(r, 500));
   }
   throw new Error(late);

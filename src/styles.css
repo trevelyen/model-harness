@@ -246,7 +246,13 @@ select:focus-visible { outline: none; border-color: var(--border-strong); }
 }
 .picker-search input { flex: 1; border: 0; outline: 0; background: none; color: var(--text); }
 .picker-scroll { max-height: min(60vh, 460px); overflow-y: auto; padding: 6px; }
-.picker-scroll h4 { margin: 10px 10px 4px; font-size: 12px; font-weight: 500; color: var(--muted); }
+.picker-scroll h4 { margin: 6px 4px 2px; font-size: 12px; font-weight: 500; color: var(--muted); }
+.picker-heading {
+  display: flex; align-items: center; gap: 4px; width: 100%; padding: 4px 6px; border: 0; border-radius: 6px;
+  background: none; color: inherit; font: inherit; text-align: left; cursor: pointer;
+}
+.picker-heading:hover { background: var(--hover); color: var(--text-soft); }
+.picker-heading-count { margin-left: auto; font-variant-numeric: tabular-nums; }
 .picker-item {
   display: flex; align-items: center; gap: 10px; width: 100%;
   padding: 8px 10px; border-radius: 10px; text-align: left; font-size: 14px;
@@ -1163,7 +1169,7 @@ a.icon-button { color: var(--muted); }
 
 .subagent-fallback { max-height: 240px; }
 
-/* Folder picker */
+/* Path picker: folders and files */
 
 .folder-dialog { width: min(560px, 100%); height: min(560px, calc(100vh - 32px)); }
 .folder-path { display: flex; align-items: center; gap: 4px; padding: 10px 12px; border-bottom: 1px solid var(--border); }
@@ -1177,6 +1183,12 @@ a.icon-button { color: var(--muted); }
 .folder-list { flex: 1; min-height: 0; overflow-y: auto; padding: 6px; }
 .folder-list .picker-item svg { color: var(--muted); flex-shrink: 0; }
 .folder-list .picker-item.is-hidden { color: var(--muted); }
+.folder-list .picker-item.is-cursor:not(.is-active) { background: var(--hover); }
+.folder-list .picker-item.is-active svg { color: var(--accent); }
+.folder-list .picker-item.is-disabled { opacity: 0.45; cursor: default; }
+.folder-list .picker-item.is-disabled:hover { background: none; }
+.folder-filter { display: flex; align-items: center; gap: 8px; padding: 8px 16px; border-bottom: 1px solid var(--border); color: var(--muted); }
+.folder-filter input { flex: 1; min-width: 0; border: 0; outline: 0; background: none; color: var(--text); font-size: 13.5px; }
 /* The dialog is rounded 20px and buttons 10px, so a 10px inset keeps the corner buttons concentric. */
 .folder-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px; border-top: 1px solid var(--border); }
 .folder-actions { display: flex; gap: 6px; }
